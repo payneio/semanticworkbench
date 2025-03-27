@@ -7,18 +7,17 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import pydantic
 from mcp import ClientSession, types
-from mcp.client.session import SamplingFnT
+from mcp.client.session import MessageHandlerFnT, SamplingFnT
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.shared.context import RequestContext
+from mcp_extensions import ExtendedClientSession, ListResourcesFnT, ReadResourceFnT, WriteResourceFnT
 
 from . import _devtunnel
-
 from ._model import (
     MCPSamplingMessageHandler,
     MCPServerConfig,
     MCPSession,
-    MCPToolsConfigModel,
 )
 
 logger = logging.getLogger(__name__)
@@ -35,21 +34,23 @@ def get_env_dict(server_config: MCPServerConfig) -> dict[str, str] | None:
 @asynccontextmanager
 async def connect_to_mcp_server(
     server_config: MCPServerConfig,
-    sampling_callback: Optional[SamplingFnT] = None,
-) -> AsyncIterator[ClientSession]:
+    sampling_callback: SamplingFnT | None = None,
+    message_handler: MessageHandlerFnT | None = None,
+    experimental_resource_callbacks: tuple[ListResourcesFnT, ReadResourceFnT, WriteResourceFnT] | None = None,
+) -> AsyncIterator[ExtendedClientSession]:
     """Connect to a single MCP server defined in the config."""
     transport = "sse" if server_config.command.startswith("http") else "stdio"
 
     match transport:
         case "sse":
             async with connect_to_mcp_server_sse(
-                server_config, sampling_callback
+                server_config, sampling_callback, message_handler, experimental_resource_callbacks
             ) as client_session:
                 yield client_session
 
         case "stdio":
             async with connect_to_mcp_server_stdio(
-                server_config, sampling_callback
+                server_config, sampling_callback, message_handler, experimental_resource_callbacks
             ) as client_session:
                 yield client_session
 
@@ -91,8 +92,10 @@ def list_roots_callback_for(server_config: MCPServerConfig):
 @asynccontextmanager
 async def connect_to_mcp_server_stdio(
     server_config: MCPServerConfig,
-    sampling_callback: Optional[SamplingFnT] = None,
-) -> AsyncIterator[ClientSession]:
+    sampling_callback: SamplingFnT | None = None,
+    message_handler: MessageHandlerFnT | None = None,
+    experimental_resource_callbacks: tuple[ListResourcesFnT, ReadResourceFnT, WriteResourceFnT] | None = None,
+) -> AsyncIterator[ExtendedClientSession]:
     """Connect to a single MCP server defined in the config."""
 
     server_params = StdioServerParameters(
@@ -105,11 +108,13 @@ async def connect_to_mcp_server_stdio(
     )
     try:
         async with stdio_client(server_params) as (read_stream, write_stream):
-            async with ClientSession(
+            async with ExtendedClientSession(
                 read_stream,
                 write_stream,
                 list_roots_callback=list_roots_callback_for(server_config),
                 sampling_callback=sampling_callback,
+                message_handler=message_handler,
+                experimental_resource_callbacks=experimental_resource_callbacks,
             ) as client_session:
                 await client_session.initialize()
                 yield client_session  # Yield the session for use
@@ -136,8 +141,10 @@ def add_params_to_url(url: str, params: dict[str, str]) -> str:
 @asynccontextmanager
 async def connect_to_mcp_server_sse(
     server_config: MCPServerConfig,
-    sampling_callback: Optional[SamplingFnT] = None,
-) -> AsyncIterator[ClientSession]:
+    sampling_callback: SamplingFnT | None = None,
+    message_handler: MessageHandlerFnT | None = None,
+    experimental_resource_callbacks: tuple[ListResourcesFnT, ReadResourceFnT, WriteResourceFnT] | None = None,
+) -> AsyncIterator[ExtendedClientSession]:
     """Connect to a single MCP server defined in the config using SSE transport."""
 
     try:
@@ -146,26 +153,22 @@ async def connect_to_mcp_server_sse(
 
         devtunnel_config = _devtunnel.config_from(server_config.args)
         if devtunnel_config:
-            url = await _devtunnel.forwarded_url_for(
-                original_url=url, devtunnel=devtunnel_config
-            )
+            url = await _devtunnel.forwarded_url_for(original_url=url, devtunnel=devtunnel_config)
 
-        logger.debug(
-            f"Attempting to connect to {server_config.key} with SSE transport: {url}"
-        )
+        logger.debug(f"Attempting to connect to {server_config.key} with SSE transport: {url}")
 
         # FIXME: Bumping sse_read_timeout to 15 minutes and timeout to 5 minutes, but this should be configurable
-        async with sse_client(
-            url=url, headers=headers, timeout=60 * 5, sse_read_timeout=60 * 15
-        ) as (
+        async with sse_client(url=url, headers=headers, timeout=60 * 5, sse_read_timeout=60 * 15) as (
             read_stream,
             write_stream,
         ):
-            async with ClientSession(
+            async with ExtendedClientSession(
                 read_stream,
                 write_stream,
                 list_roots_callback=list_roots_callback_for(server_config),
                 sampling_callback=sampling_callback,
+                message_handler=message_handler,
+                experimental_resource_callbacks=experimental_resource_callbacks,
             ) as client_session:
                 await client_session.initialize()
                 yield client_session  # Yield the session for use
@@ -180,9 +183,7 @@ async def connect_to_mcp_server_sse(
         else:
             raise
     except CancelledError as e:
-        logger.exception(
-            f"Task was cancelled in SSE client for {server_config.key}: {e}"
-        )
+        logger.exception(f"Task was cancelled in SSE client for {server_config.key}: {e}")
         raise
     except RuntimeError as e:
         logger.exception(f"Runtime error in SSE client for {server_config.key}: {e}")
@@ -192,7 +193,12 @@ async def connect_to_mcp_server_sse(
         raise
 
 
-async def refresh_mcp_sessions(mcp_sessions: list[MCPSession]) -> list[MCPSession]:
+async def refresh_mcp_sessions(
+    mcp_sessions: list[MCPSession],
+    sampling_handler: Optional[MCPSamplingMessageHandler] = None,
+    message_handler: MessageHandlerFnT | None = None,
+    experimental_resource_callbacks: tuple[ListResourcesFnT, ReadResourceFnT, WriteResourceFnT] | None = None,
+) -> list[MCPSession]:
     """
     Check each MCP session for connectivity. If a session is marked as disconnected,
     attempt to reconnect it using reconnect_mcp_session.
@@ -200,10 +206,10 @@ async def refresh_mcp_sessions(mcp_sessions: list[MCPSession]) -> list[MCPSessio
     active_sessions = []
     for session in mcp_sessions:
         if not session.is_connected:
-            logger.info(
-                f"Session {session.config.key} is disconnected. Attempting to reconnect..."
+            logger.info(f"Session {session.config.key} is disconnected. Attempting to reconnect...")
+            new_session = await reconnect_mcp_session(
+                session.config, sampling_handler, message_handler, experimental_resource_callbacks
             )
-            new_session = await reconnect_mcp_session(session.config)
             if new_session:
                 active_sessions.append(new_session)
             else:
@@ -213,7 +219,12 @@ async def refresh_mcp_sessions(mcp_sessions: list[MCPSession]) -> list[MCPSessio
     return active_sessions
 
 
-async def reconnect_mcp_session(server_config: MCPServerConfig) -> MCPSession | None:
+async def reconnect_mcp_session(
+    server_config: MCPServerConfig,
+    sampling_handler: MCPSamplingMessageHandler | None = None,
+    message_handler: MessageHandlerFnT | None = None,
+    experimental_resource_callbacks: tuple[ListResourcesFnT, ReadResourceFnT, WriteResourceFnT] | None = None,
+) -> MCPSession | None:
     """
     Attempt to reconnect to the MCP server using the provided configuration.
     Returns a new MCPSession if successful, or None otherwise.
@@ -221,16 +232,14 @@ async def reconnect_mcp_session(server_config: MCPServerConfig) -> MCPSession | 
     to avoid interfering with cancel scopes.
     """
     try:
-        async with connect_to_mcp_server(server_config) as client_session:
+        async with connect_to_mcp_server(
+            server_config, sampling_handler, message_handler, experimental_resource_callbacks
+        ) as client_session:
             if client_session is None:
-                logger.error(
-                    f"Reconnection returned no client session for {server_config.key}"
-                )
+                logger.error(f"Reconnection returned no client session for {server_config.key}")
                 return None
 
-            new_session = MCPSession(
-                config=server_config, client_session=client_session
-            )
+            new_session = MCPSession(config=server_config, client_session=client_session)
             await new_session.initialize()
             new_session.is_connected = True
             logger.info(f"Successfully reconnected to MCP server {server_config.key}")
@@ -253,6 +262,8 @@ async def establish_mcp_sessions(
     mcp_server_configs: list[MCPServerConfig],
     stack: AsyncExitStack,
     sampling_handler: Optional[MCPSamplingMessageHandler] = None,
+    message_handler: MessageHandlerFnT | None = None,
+    experimental_resource_callbacks: tuple[ListResourcesFnT, ReadResourceFnT, WriteResourceFnT] | None = None,
 ) -> list[MCPSession]:
     """
     Establish connections to multiple MCP servers and return their sessions.
@@ -265,10 +276,12 @@ async def establish_mcp_sessions(
             continue
 
         try:
-            client_session: ClientSession = await stack.enter_async_context(
+            client_session: ExtendedClientSession = await stack.enter_async_context(
                 connect_to_mcp_server(
                     server_config,
                     sampling_callback=sampling_handler,
+                    message_handler=message_handler,
+                    experimental_resource_callbacks=experimental_resource_callbacks,
                 )
             )
         except Exception as e:
@@ -276,30 +289,17 @@ async def establish_mcp_sessions(
             logger.exception("failed to connect to MCP server: %s", server_config.key)
             raise MCPServerConnectionError(server_config, e) from e
 
-        mcp_session = MCPSession(
-            config=server_config, client_session=client_session
-        )
+        mcp_session = MCPSession(config=server_config, client_session=client_session)
         await mcp_session.initialize()
         mcp_sessions.append(mcp_session)
 
     return mcp_sessions
 
 
-def get_enabled_mcp_server_configs(tools: MCPToolsConfigModel) -> list[MCPServerConfig]:
-    if not tools.enabled:
-        return []
-
-    return [
-        server_config
-        for server_config in tools.mcp_servers
-        if server_config.enabled
-    ]
+def get_enabled_mcp_server_configs(mcp_servers: list[MCPServerConfig]) -> list[MCPServerConfig]:
+    return [server_config for server_config in mcp_servers if server_config.enabled]
 
 
 def get_mcp_server_prompts(mcp_servers: list[MCPServerConfig]) -> list[str]:
     """Get the prompts for all MCP servers that have them."""
-    return [
-        mcp_server.prompt
-        for mcp_server in mcp_servers
-        if mcp_server.prompt
-    ]
+    return [mcp_server.prompt for mcp_server in mcp_servers if mcp_server.prompt]

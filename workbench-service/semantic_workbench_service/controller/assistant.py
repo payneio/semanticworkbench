@@ -38,7 +38,7 @@ from sqlalchemy.orm import joinedload
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from .. import auth, db, files, query
+from .. import auth, db, files, query, settings
 from ..event import ConversationEventQueueItem
 from . import convert, exceptions, export_import
 from . import participant as participant_
@@ -124,7 +124,7 @@ class AssistantController:
             )
         ).put_assistant(
             assistant_id=assistant.assistant_id,
-            request=AssistantPutRequestModel(assistant_name=assistant.name),
+            request=AssistantPutRequestModel(assistant_name=assistant.name, template_id=assistant.template_id),
             from_export=from_export,
         )
 
@@ -235,6 +235,7 @@ class AssistantController:
                 image=new_assistant.image,
                 meta_data=new_assistant.metadata,
                 assistant_service_id=assistant_service.assistant_service_id,
+                template_id=new_assistant.template_id,
                 imported_from_assistant_id=None,
             )
             session.add(assistant)
@@ -357,14 +358,19 @@ class AssistantController:
     ) -> AssistantList:
         async with self._get_session() as session:
             if conversation_id is None:
-                assistants = await session.exec(
-                    query.select_assistants_for(user_principal=user_principal).order_by(
-                        col(db.Assistant.created_datetime).desc(),
-                        col(db.Assistant.name).asc(),
+                assistants = (
+                    await session.exec(
+                        query.select_assistants_for(user_principal=user_principal).order_by(
+                            col(db.Assistant.created_datetime).desc(),
+                            col(db.Assistant.name).asc(),
+                        )
                     )
-                )
+                ).all()
 
-                return convert.assistant_list_from_db(models=assistants)
+                if assistants:
+                    return convert.assistant_list_from_db(models=assistants)
+
+                return await self._create_default_user_assistants(user_principal=user_principal)
 
             conversation = (
                 await session.exec(
@@ -386,6 +392,39 @@ class AssistantController:
             )
 
             return convert.assistant_list_from_db(models=assistants)
+
+    async def _create_default_user_assistants(
+        self,
+        user_principal: auth.UserPrincipal,
+    ) -> AssistantList:
+        assistants = []
+        for identifiers in settings.service.default_assistants:
+            async with self._get_session() as session:
+                assistant_service = (
+                    await session.exec(
+                        select(db.AssistantServiceRegistration).where(
+                            db.AssistantServiceRegistration.assistant_service_id == identifiers.assistant_service_id
+                        )
+                    )
+                ).one_or_none()
+                if assistant_service is None:
+                    logger.error(
+                        "configured assistant service id for default assistants is not valid; id: %s",
+                        identifiers.assistant_service_id,
+                    )
+                    return AssistantList(assistants=[])
+
+            assistant = await self.create_assistant(
+                user_principal=user_principal,
+                new_assistant=NewAssistant(
+                    assistant_service_id=identifiers.assistant_service_id,
+                    template_id=identifiers.template_id,
+                    name=identifiers.name,
+                ),
+            )
+            assistants.append(assistant)
+
+        return AssistantList(assistants=assistants)
 
     async def get_assistant(
         self,
@@ -852,7 +891,7 @@ class AssistantController:
             meta_data = {
                 **original_conversation.meta_data,
                 **new_conversation.metadata,
-                "original_conversation_id": str(original_conversation.conversation_id),
+                "_original_conversation_id": str(original_conversation.conversation_id),
             }
 
             # Create a new conversation with the same properties

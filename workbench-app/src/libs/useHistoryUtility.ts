@@ -1,12 +1,10 @@
 import React from 'react';
 import { Constants } from '../Constants';
 import { ConversationMessage } from '../models/ConversationMessage';
-import { ConversationParticipant } from '../models/ConversationParticipant';
 import { useAppDispatch } from '../redux/app/hooks';
 import {
     conversationApi,
     updateGetAllConversationMessagesQueryData,
-    updateGetConversationParticipantsQueryData,
     useGetAllConversationMessagesQuery,
     useGetAssistantsInConversationQuery,
     useGetConversationFilesQuery,
@@ -23,6 +21,7 @@ export const useHistoryUtility = (conversationId: string) => {
         data: conversation,
         error: conversationError,
         isLoading: conversationIsLoading,
+        refetch: refetchConversation,
     } = useGetConversationQuery(conversationId, { refetchOnMountOrArgChange: true });
     const {
         data: allConversationMessages,
@@ -36,6 +35,7 @@ export const useHistoryUtility = (conversationId: string) => {
         data: conversationParticipants,
         error: conversationParticipantsError,
         isLoading: conversationParticipantsIsLoading,
+        refetch: conversationParticipantsRefetch,
     } = useGetConversationParticipantsQuery(conversationId);
     const {
         data: assistants,
@@ -116,30 +116,14 @@ export const useHistoryUtility = (conversationId: string) => {
     );
 
     // handler for when a new participant is created
-    const onParticipantCreated = React.useCallback(
-        (participant: ConversationParticipant) =>
-            // add the new participant to the cached participants
-            dispatch(
-                updateGetConversationParticipantsQueryData(conversationId, {
-                    participants: [...(conversationParticipants ?? []), participant],
-                }),
-            ),
-        [dispatch, conversationId, conversationParticipants],
-    );
+    const onParticipantCreated = React.useCallback(async () => {
+        await conversationParticipantsRefetch();
+    }, [conversationParticipantsRefetch]);
 
     // handler for when a participant is updated
-    const onParticipantUpdated = React.useCallback(
-        (participant: ConversationParticipant) =>
-            // update the participant in the cached participants
-            dispatch(
-                updateGetConversationParticipantsQueryData(conversationId, {
-                    participants: (conversationParticipants ?? []).map((existingParticipant) =>
-                        existingParticipant.id === participant.id ? participant : existingParticipant,
-                    ),
-                }),
-            ),
-        [dispatch, conversationId, conversationParticipants],
-    );
+    const onParticipantUpdated = React.useCallback(async () => {
+        await conversationParticipantsRefetch();
+    }, [conversationParticipantsRefetch]);
 
     // subscribe to conversation events
     useConversationEvents(conversationId, {
@@ -208,5 +192,6 @@ export const useHistoryUtility = (conversationId: string) => {
         assistantsRefetch,
         assistantCapabilitiesIsFetching,
         rewindToBefore,
+        refetchConversation,
     };
 };

@@ -1,4 +1,6 @@
-from pydantic import HttpUrl
+from typing import Annotated
+
+from pydantic import Field, HttpUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .files import StorageSettings
@@ -26,6 +28,12 @@ class AuthSettings(BaseSettings):
     allowed_app_id: str = "22cb77c3-ca98-4a26-b4db-ac4dcecba690"
 
 
+class AssistantIdentifiers(BaseSettings):
+    assistant_service_id: str
+    template_id: str
+    name: str
+
+
 class WebServiceSettings(BaseSettings):
     protocol: str = "http"
     host: str = "127.0.0.1"
@@ -37,13 +45,12 @@ class WebServiceSettings(BaseSettings):
 
     assistant_service_online_check_interval_seconds: float = 10.0
 
+    azure_openai_endpoint: Annotated[str, Field(validation_alias="azure_openai_endpoint")] = ""
+    azure_openai_deployment: Annotated[str, Field(validation_alias="azure_openai_deployment")] = "gpt-4o-mini"
+    azure_openai_model: Annotated[str, Field(validation_alias="azure_openai_model")] = "gpt-4o-mini"
+    azure_openai_api_version: Annotated[str, Field(validation_alias="azure_openai_api_version")] = "2025-02-01-preview"
 
-class WorkflowSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="workflow__", env_nested_delimiter="_", env_file=".env", extra="allow")
-
-    azure_openai_endpoint: str = ""
-    azure_openai_deployment: str = "gpt-4-turbo"
-    azure_openai_api_version: str = "2023-05-15"
+    default_assistants: list[AssistantIdentifiers] = []
 
 
 class AzureSpeechSettings(BaseSettings):
@@ -64,7 +71,6 @@ class Settings(BaseSettings):
     storage: StorageSettings = StorageSettings()
     logging: LoggingSettings = LoggingSettings()
     service: WebServiceSettings = WebServiceSettings()
-    workflow: WorkflowSettings = WorkflowSettings()
     azure_speech: AzureSpeechSettings = AzureSpeechSettings()
     auth: AuthSettings = AuthSettings()
 

@@ -1,6 +1,6 @@
 import { Checkbox, Field, Input, makeStyles, tokens } from '@fluentui/react-components';
 import React from 'react';
-import { useCreateConversation } from '../../../libs/useCreateConversation';
+import { AssistantServiceTemplate, useCreateConversation } from '../../../libs/useCreateConversation';
 import { AssistantImport } from '../../Assistants/AssistantImport';
 import { AssistantSelector } from './AssistantSelector';
 import { AssistantServiceSelector } from './AssistantServiceSelector';
@@ -26,9 +26,9 @@ const useClasses = makeStyles({
 });
 
 export interface NewConversationData {
-    title?: string;
     assistantId?: string;
     assistantServiceId?: string;
+    templateId?: string;
     name?: string;
 }
 
@@ -41,10 +41,13 @@ interface NewConversationFormProps {
 export const NewConversationForm: React.FC<NewConversationFormProps> = (props) => {
     const { onSubmit, onChange, disabled } = props;
     const classes = useClasses();
-    const { assistants, assistantServicesByCategories } = useCreateConversation();
+    const {
+        isFetching: createConversationIsFetching,
+        assistants,
+        assistantServicesByCategories,
+    } = useCreateConversation();
 
     const [config, setConfig] = React.useState<NewConversationData>({
-        title: '',
         assistantId: '',
         assistantServiceId: '',
         name: '',
@@ -52,12 +55,12 @@ export const NewConversationForm: React.FC<NewConversationFormProps> = (props) =
     const [manualEntry, setManualEntry] = React.useState(false);
 
     const checkIsValid = React.useCallback((data: NewConversationData) => {
-        if (!data.title || !data.assistantId) {
+        if (!data.assistantId) {
             return false;
         }
 
         if (data.assistantId === 'new') {
-            if (!data.assistantServiceId || !data.name) {
+            if (!data.assistantServiceId || !data.name || !data.templateId) {
                 return false;
             }
         }
@@ -73,6 +76,7 @@ export const NewConversationForm: React.FC<NewConversationFormProps> = (props) =
             if (data.assistantId === 'new') {
                 updatedConfig.assistantServiceId = data.assistantServiceId ?? '';
                 updatedConfig.name = data.name ?? '';
+                updatedConfig.templateId = data.templateId ?? '';
             }
 
             setConfig(updatedConfig);
@@ -91,26 +95,23 @@ export const NewConversationForm: React.FC<NewConversationFormProps> = (props) =
             }}
         >
             <div className={classes.content}>
-                <Field label="Title">
-                    <Input
-                        disabled={disabled}
-                        value={config.title}
-                        onChange={(_event, data) => updateAndNotifyChange({ title: data?.value })}
-                        aria-autocomplete="none"
-                    />
-                </Field>
                 <Field label="Assistant">
-                    <AssistantSelector
-                        assistants={assistants}
-                        onChange={(assistantId) =>
-                            updateAndNotifyChange({
-                                assistantId,
-                                assistantServiceId: assistantId === 'new' ? '' : undefined,
-                                name: assistantId === 'new' ? '' : undefined,
-                            })
-                        }
-                        disabled={disabled}
-                    />
+                    {createConversationIsFetching ? (
+                        <Input disabled={true} value="Loading..." />
+                    ) : (
+                        <AssistantSelector
+                            assistants={assistants}
+                            defaultAssistant={assistants?.[0]}
+                            onChange={(assistantId) =>
+                                updateAndNotifyChange({
+                                    assistantId,
+                                    assistantServiceId: assistantId === 'new' ? '' : undefined,
+                                    name: assistantId === 'new' ? '' : undefined,
+                                })
+                            }
+                            disabled={disabled}
+                        />
+                    )}
                 </Field>
                 {config.assistantId === 'new' && (
                     <>
@@ -119,7 +120,13 @@ export const NewConversationForm: React.FC<NewConversationFormProps> = (props) =
                                 <AssistantServiceSelector
                                     disabled={disabled}
                                     assistantServicesByCategory={assistantServicesByCategories}
-                                    onChange={(assistantService) => updateAndNotifyChange(assistantService)}
+                                    onChange={(assistantService: AssistantServiceTemplate) =>
+                                        updateAndNotifyChange({
+                                            assistantServiceId: assistantService.service.assistantServiceId,
+                                            name: assistantService.template.name,
+                                            templateId: assistantService.template.id,
+                                        })
+                                    }
                                 />
                             </Field>
                         )}

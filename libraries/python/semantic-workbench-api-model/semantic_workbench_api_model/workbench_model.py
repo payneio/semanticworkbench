@@ -44,11 +44,16 @@ class AssistantServiceRegistrationList(BaseModel):
     assistant_service_registrations: list[AssistantServiceRegistration]
 
 
+class AssistantServiceInfoList(BaseModel):
+    assistant_service_infos: list[assistant_model.ServiceInfoModel]
+
+
 class Assistant(BaseModel):
     id: uuid.UUID
     name: str
     image: str | None
     assistant_service_id: str
+    template_id: str
     metadata: dict[str, Any]
     created_datetime: datetime.datetime
 
@@ -213,6 +218,10 @@ class FileVersions(BaseModel):
     filename: str
     current_version: int
     versions: list[FileVersion]
+
+
+class UpdateFile(BaseModel):
+    metadata: dict[str, Any]
 
 
 class ConversationImportResult(BaseModel):
@@ -395,6 +404,7 @@ class UpdateAssistantServiceRegistrationUrl(BaseModel):
 
 class NewAssistant(BaseModel):
     assistant_service_id: str
+    template_id: str = "default"
     name: str
     image: str | None = None
     metadata: dict[str, Any] = {}
@@ -417,7 +427,7 @@ class AssistantStateEvent(BaseModel):
 
 
 class NewConversation(BaseModel):
-    title: str
+    title: str = "New Conversation"
     metadata: dict[str, Any] = {}
 
 
@@ -426,7 +436,7 @@ class UpdateConversation(BaseModel):
     Update the conversation's title and/or metadata. Leave a field as None to not update it.
     """
 
-    title: str
+    title: str | None = None
     metadata: dict[str, Any] = {}
 
 

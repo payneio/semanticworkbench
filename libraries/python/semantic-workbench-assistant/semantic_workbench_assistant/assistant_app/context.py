@@ -22,6 +22,7 @@ class AssistantContext:
     name: str
 
     _assistant_service_id: str
+    _template_id: str = field(default="default")
 
 
 @dataclass
@@ -81,6 +82,9 @@ class ConversationContext:
     async def get_conversation(self) -> workbench_model.Conversation:
         return await self._workbench_client.get_conversation()
 
+    async def update_conversation(self, metadata: dict[str, Any]) -> workbench_model.Conversation:
+        return await self._workbench_client.update_conversation(metadata)
+
     async def get_participants(self, include_inactive=False) -> workbench_model.ConversationParticipantList:
         return await self._workbench_client.get_participants(include_inactive=include_inactive)
 
@@ -120,7 +124,7 @@ class ConversationContext:
     async def get_file(self, filename: str) -> workbench_model.File | None:
         return await self._workbench_client.get_file(filename=filename)
 
-    async def get_files(self, prefix: str | None = None) -> workbench_model.FileList:
+    async def list_files(self, prefix: str | None = None) -> workbench_model.FileList:
         return await self._workbench_client.get_files(prefix=prefix)
 
     async def file_exists(self, filename: str) -> bool:
@@ -128,6 +132,9 @@ class ConversationContext:
 
     async def delete_file(self, filename: str) -> None:
         return await self._workbench_client.delete_file(filename)
+
+    async def update_file(self, filename: str, metadata: dict[str, Any]) -> workbench_model.FileVersions:
+        return await self._workbench_client.update_file(filename, metadata)
 
     @asynccontextmanager
     async def state_updated_event_after(self, state_id: str, focus_event: bool = False) -> AsyncIterator[None]:

@@ -10,7 +10,6 @@ from typing import Any
 
 import deepmerge
 from assistant_extensions.attachments import AttachmentsExtension
-from assistant_extensions.mcp import MCPToolsConfigModel
 from content_safety.evaluators import CombinedContentSafetyEvaluator
 from semantic_workbench_api_model.workbench_model import (
     ConversationEvent,
@@ -21,13 +20,14 @@ from semantic_workbench_api_model.workbench_model import (
 from semantic_workbench_assistant.assistant_app import (
     AssistantApp,
     AssistantContext,
+    AssistantTemplate,
     BaseModelAssistantConfig,
     ContentSafety,
     ContentSafetyEvaluator,
     ConversationContext,
 )
 
-from .config import AssistantConfigModel
+from .config import AssistantConfigModel, MCPToolsConfigModel, WorkspaceAssistantConfigModel
 from .response import respond_to_conversation
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,9 @@ service_description = "An assistant for developing in the Codespaces."
 #
 # create the configuration provider, using the extended configuration model
 #
-assistant_config = BaseModelAssistantConfig(AssistantConfigModel)
+assistant_config = BaseModelAssistantConfig(
+    AssistantConfigModel, additional_templates={"workspace": WorkspaceAssistantConfigModel}
+)
 
 
 # define the content safety evaluator factory
@@ -64,11 +66,18 @@ assistant = AssistantApp(
     assistant_service_description=service_description,
     config_provider=assistant_config.provider,
     content_interceptor=content_safety,
+    additional_templates=[
+        AssistantTemplate(
+            id="workspace",
+            name="Workspace Assistant",
+            description="An assistant for workspaces.",
+        ),
+    ],
 )
 
 
 async def tools_config_provider(context: AssistantContext) -> MCPToolsConfigModel:
-    return (await assistant_config.get(context)).extensions_config.tools
+    return (await assistant_config.get(context)).tools
 
 
 attachments_extension = AttachmentsExtension(assistant)
@@ -165,7 +174,7 @@ async def should_respond_to_message(context: ConversationContext, message: Conve
         return False
 
     # if configure to only respond to mentions, ignore messages where the content does not mention the assistant somewhere in the message
-    if config.only_respond_to_mentions and f"@{context.assistant.name}" not in message.content:
+    if config.response_behavior.only_respond_to_mentions and f"@{context.assistant.name}" not in message.content:
         # check to see if there are any other assistants in the conversation
         participant_list = await context.get_participants()
         other_assistants = [
@@ -210,7 +219,7 @@ async def on_conversation_created(context: ConversationContext) -> None:
 
     # send a welcome message to the conversation
     config = await assistant_config.get(context.assistant)
-    welcome_message = config.welcome_message
+    welcome_message = config.response_behavior.welcome_message
     await context.send_messages(
         NewConversationMessage(
             content=welcome_message,

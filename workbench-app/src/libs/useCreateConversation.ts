@@ -1,16 +1,21 @@
 import React from 'react';
 import { Constants } from '../Constants';
 import { Assistant } from '../models/Assistant';
-import { AssistantServiceRegistration } from '../models/AssistantServiceRegistration';
+import { AssistantServiceInfo, AssistantTemplate } from '../models/AssistantServiceInfo';
 import { useAppSelector } from '../redux/app/hooks';
 import {
     useAddConversationParticipantMutation,
     useCreateAssistantMutation,
     useCreateConversationMessageMutation,
     useCreateConversationMutation,
-    useGetAssistantServiceRegistrationsQuery,
+    useGetAssistantServiceInfosQuery,
     useGetAssistantsQuery,
 } from '../services/workbench';
+
+export interface AssistantServiceTemplate {
+    service: AssistantServiceInfo;
+    template: AssistantTemplate;
+}
 
 export const useCreateConversation = () => {
     const {
@@ -23,19 +28,19 @@ export const useCreateConversation = () => {
         data: assistantServices,
         error: assistantServicesError,
         isLoading: assistantServicesLoading,
-    } = useGetAssistantServiceRegistrationsQuery({});
+    } = useGetAssistantServiceInfosQuery({});
     const {
         data: myAssistantServices,
         error: myAssistantServicesError,
         isLoading: myAssistantServicesLoading,
-    } = useGetAssistantServiceRegistrationsQuery({ userIds: ['me'] });
+    } = useGetAssistantServiceInfosQuery({ userIds: ['me'] });
 
     const [createAssistant] = useCreateAssistantMutation();
     const [createConversation] = useCreateConversationMutation();
     const [addConversationParticipant] = useAddConversationParticipantMutation();
     const [createConversationMessage] = useCreateConversationMessageMutation();
 
-    const [isFetching, setIsFetching] = React.useState(false);
+    const [isFetching, setIsFetching] = React.useState(true);
     const localUserName = useAppSelector((state) => state.localUser.name);
 
     if (assistantsError) {
@@ -65,7 +70,6 @@ export const useCreateConversation = () => {
 
     const create = React.useCallback(
         async (
-            title: string,
             assistantInfo:
                 | {
                       assistantId: string;
@@ -73,6 +77,7 @@ export const useCreateConversation = () => {
                 | {
                       name: string;
                       assistantServiceId: string;
+                      templateId: string;
                   },
         ) => {
             if (assistantsLoading || assistantServicesLoading || myAssistantServicesLoading) {
@@ -81,7 +86,7 @@ export const useCreateConversation = () => {
 
             let assistant: Assistant | undefined = undefined;
 
-            const conversation = await createConversation({ title }).unwrap();
+            const conversation = await createConversation({}).unwrap();
 
             if ('assistantId' in assistantInfo) {
                 assistant = assistants?.find((a) => a.id === assistantInfo.assistantId);
@@ -89,11 +94,12 @@ export const useCreateConversation = () => {
                     throw new Error('Assistant not found');
                 }
             } else {
-                const { name, assistantServiceId } = assistantInfo;
+                const { name, assistantServiceId, templateId } = assistantInfo;
 
                 assistant = await createAssistant({
                     name,
                     assistantServiceId,
+                    templateId,
                 }).unwrap();
                 await refetchAssistants();
             }
@@ -136,18 +142,25 @@ export const useCreateConversation = () => {
         ],
     );
 
-    const categorizedAssistantServices: Record<string, AssistantServiceRegistration[]> = React.useMemo(
+    const categorizedAssistantServices: Record<string, AssistantServiceTemplate[]> = React.useMemo(
         () => ({
             ...(assistantServices ?? [])
                 .filter(
                     (service) =>
                         !myAssistantServices?.find(
                             (myService) => myService.assistantServiceId === service.assistantServiceId,
-                        ) && service.assistantServiceUrl !== null,
+                        ),
+                )
+                .flatMap(
+                    (service) =>
+                        (service.templates ?? []).map((template) => ({
+                            service,
+                            template,
+                        })) as AssistantServiceTemplate[],
                 )
                 .reduce((accumulated, assistantService) => {
                     const entry = Object.entries(Constants.assistantCategories).find(([_, serviceIds]) =>
-                        serviceIds.includes(assistantService.assistantServiceId),
+                        serviceIds.includes(assistantService.service.assistantServiceId),
                     );
                     const assignedCategory = entry ? entry[0] : 'Other';
                     if (!accumulated[assignedCategory]) {
@@ -155,8 +168,14 @@ export const useCreateConversation = () => {
                     }
                     accumulated[assignedCategory].push(assistantService);
                     return accumulated;
-                }, {} as Record<string, AssistantServiceRegistration[]>),
-            'My Services': myAssistantServices?.filter((service) => service.assistantServiceUrl !== null) ?? [],
+                }, {} as Record<string, AssistantServiceTemplate[]>),
+            'My Services': (myAssistantServices ?? []).flatMap(
+                (service) =>
+                    (service.templates ?? []).map((template) => ({
+                        service,
+                        template,
+                    })) as AssistantServiceTemplate[],
+            ),
         }),
         [assistantServices, myAssistantServices],
     );
@@ -169,13 +188,15 @@ export const useCreateConversation = () => {
         [categorizedAssistantServices],
     );
 
-    const assistantServicesByCategories: { category: string; assistantServices: AssistantServiceRegistration[] }[] =
+    const assistantServicesByCategories: { category: string; assistantServices: AssistantServiceTemplate[] }[] =
         React.useMemo(
             () =>
                 orderedAssistantServicesCategories.map((category) => ({
                     category,
                     assistantServices:
-                        categorizedAssistantServices[category]?.sort((a, b) => a.name.localeCompare(b.name)) ?? [],
+                        categorizedAssistantServices[category]?.sort((a, b) =>
+                            a.template.name.localeCompare(b.template.name),
+                        ) ?? [],
                 })),
             [categorizedAssistantServices, orderedAssistantServicesCategories],
         );

@@ -20,7 +20,6 @@ from openai_client import OpenAIRequestConfig, num_tokens_from_messages
 from semantic_workbench_api_model.workbench_model import (
     MessageType,
     NewConversationMessage,
-    UpdateParticipant,
 )
 from semantic_workbench_assistant.assistant_app import ConversationContext
 
@@ -114,6 +113,15 @@ async def handle_completion(
             )
         )
 
+        await context.update_conversation(
+            metadata={
+                "token_counts": {
+                    "total": total_tokens,
+                    "max": request_config.max_tokens,
+                }
+            }
+        )
+
     # Track the end time of the response generation and calculate duration
     response_end_time = time.time()
     response_duration = response_end_time - response_start_time
@@ -162,17 +170,12 @@ async def handle_completion(
             tool_call_count += 1
             tool_call_status = f"using tool `{tool_call.name}`"
             async with context.set_status(f"{tool_call_status}..."):
-
-                async def on_logging_message(msg: str) -> None:
-                    await context.update_participant_me(UpdateParticipant(status=f"{tool_call_status}: {msg}"))
-
                 try:
                     tool_call_result = await handle_mcp_tool_call(
                         sampling_handler,
                         mcp_sessions,
                         tool_call,
                         f"{metadata_key}:request:tool_call_{tool_call_count}",
-                        on_logging_message,
                     )
                 except Exception as e:
                     logger.exception(f"Error handling tool call '{tool_call.name}': {e}")

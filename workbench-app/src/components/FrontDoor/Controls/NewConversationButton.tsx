@@ -12,23 +12,26 @@ export const NewConversationButton: React.FC = () => {
     const [open, setOpen] = React.useState(false);
     const { createConversation } = useCreateConversation();
     const [isValid, setIsValid] = React.useState(false);
-    const [title, setTitle] = React.useState<string>();
     const [assistantId, setAssistantId] = React.useState<string>();
     const [name, setName] = React.useState<string>();
     const [assistantServiceId, setAssistantServiceId] = React.useState<string>();
+    const [templateId, setTemplateId] = React.useState<string>();
     const [submitted, setSubmitted] = React.useState(false);
     const { navigateToConversation } = useConversationUtility();
     const { notifyError } = useNotify();
 
     const handleCreate = React.useCallback(async () => {
-        if (submitted || !isValid || !title || !assistantId) {
+        if (submitted || !isValid || !assistantId) {
             return;
         }
 
         // ensure we have a valid assistant info
-        let assistantInfo: { assistantId: string } | { name: string; assistantServiceId: string } | undefined;
-        if (assistantId === 'new' && name && assistantServiceId) {
-            assistantInfo = { name, assistantServiceId };
+        let assistantInfo:
+            | { assistantId: string }
+            | { name: string; assistantServiceId: string; templateId: string }
+            | undefined;
+        if (assistantId === 'new' && name && assistantServiceId && templateId) {
+            assistantInfo = { name, assistantServiceId, templateId };
         } else {
             assistantInfo = { assistantId };
         }
@@ -39,7 +42,7 @@ export const NewConversationButton: React.FC = () => {
         setSubmitted(true);
 
         try {
-            const { conversation } = await createConversation(title, assistantInfo);
+            const { conversation } = await createConversation(assistantInfo);
             navigateToConversation(conversation.id);
         } finally {
             // In case of error, allow user to retry
@@ -47,7 +50,16 @@ export const NewConversationButton: React.FC = () => {
         }
 
         setOpen(false);
-    }, [assistantId, assistantServiceId, createConversation, isValid, name, navigateToConversation, submitted, title]);
+    }, [
+        assistantId,
+        assistantServiceId,
+        createConversation,
+        isValid,
+        name,
+        navigateToConversation,
+        submitted,
+        templateId,
+    ]);
 
     const handleImport = React.useCallback(
         (conversationIds: string[]) => {
@@ -80,9 +92,9 @@ export const NewConversationButton: React.FC = () => {
                     onSubmit={handleCreate}
                     onChange={(isValid, data) => {
                         setIsValid(isValid);
-                        setTitle(data.title);
                         setAssistantId(data.assistantId);
                         setAssistantServiceId(data.assistantServiceId);
+                        setTemplateId(data.templateId);
                         setName(data.name);
                     }}
                     disabled={submitted}

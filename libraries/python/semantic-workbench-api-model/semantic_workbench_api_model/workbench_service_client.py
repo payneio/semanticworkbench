@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import types
+import urllib.parse
 import uuid
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
@@ -134,6 +135,17 @@ class ConversationAPIClient:
             http_response.raise_for_status()
             return workbench_model.Conversation.model_validate(http_response.json())
 
+    async def update_conversation(self, metadata: dict[str, Any]) -> workbench_model.Conversation:
+        async with self._client as client:
+            http_response = await client.patch(
+                f"/conversations/{self._conversation_id}",
+                json=workbench_model.UpdateConversation(metadata=metadata).model_dump(
+                    mode="json", exclude_unset=True, exclude_defaults=True
+                ),
+            )
+            http_response.raise_for_status()
+            return workbench_model.Conversation.model_validate(http_response.json())
+
     async def get_participant_me(self) -> workbench_model.ConversationParticipant:
         async with self._client as client:
             http_response = await client.get(f"/conversations/{self._conversation_id}/participants/me")
@@ -226,7 +238,7 @@ class ConversationAPIClient:
             for message in messages:
                 http_response = await client.post(
                     f"/conversations/{self._conversation_id}/messages",
-                    json=message.model_dump(mode="json"),
+                    json=message.model_dump(mode="json", exclude_unset=True, exclude_defaults=True),
                 )
                 http_response.raise_for_status()
                 message_out = workbench_model.ConversationMessage.model_validate(http_response.json())
@@ -243,7 +255,7 @@ class ConversationAPIClient:
             http_response = await client.post(
                 f"/assistants/{assistant_id}/states/events",
                 params={"conversation_id": self._conversation_id},
-                json=state_event.model_dump(mode="json"),
+                json=state_event.model_dump(mode="json", exclude_unset=True, exclude_defaults=True),
             )
             http_response.raise_for_status()
 
@@ -323,6 +335,21 @@ class ConversationAPIClient:
             if http_response.status_code == httpx.codes.NOT_FOUND:
                 return
             http_response.raise_for_status()
+
+    async def update_file(
+        self,
+        filename: str,
+        metadata: dict[str, Any],
+    ) -> workbench_model.FileVersions:
+        async with self._client as client:
+            http_response = await client.patch(
+                f"/conversations/{self._conversation_id}/files/{filename}",
+                json=workbench_model.UpdateFile(metadata=metadata).model_dump(
+                    mode="json", exclude_unset=True, exclude_defaults=True
+                ),
+            )
+            http_response.raise_for_status()
+            return workbench_model.FileVersions.model_validate(http_response.json())
 
 
 class ConversationsAPIClient:
@@ -491,7 +518,9 @@ class WorkbenchServiceClientBuilder:
             base_url=self._base_url,
             timeout=httpx.Timeout(5.0, connect=10.0, read=60.0),
             headers={
-                asgi_correlation_id.CorrelationIdMiddleware.header_name: asgi_correlation_id.correlation_id.get() or "",
+                asgi_correlation_id.CorrelationIdMiddleware.header_name: urllib.parse.quote(
+                    asgi_correlation_id.correlation_id.get() or ""
+                ),
             },
         )
         for header in headers:
