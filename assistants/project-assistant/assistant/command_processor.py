@@ -6,7 +6,6 @@ It defines a command registry, command handlers for both Coordinator and Team mo
 controls based on user roles.
 """
 
-import logging
 from datetime import datetime
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
@@ -18,6 +17,8 @@ from semantic_workbench_api_model.workbench_model import (
 )
 from semantic_workbench_assistant.assistant_app import ConversationContext
 
+from .logging import logger
+from .permission_utils import check_command_permission
 from .project_data import (
     LogEntryType,
     ProjectGoal,
@@ -33,8 +34,8 @@ from .project_storage import (
     ProjectStorage,
     ProjectStorageManager,
 )
-
-logger = logging.getLogger(__name__)
+from .role_utils import get_conversation_role
+from .template_utils import is_context_transfer_template
 
 # Command handler function type
 CommandHandlerType = Callable[[ConversationContext, ConversationMessage, List[str]], Awaitable[None]]
@@ -114,17 +115,43 @@ class CommandRegistry:
             "example": self.commands[command_name]["example"],
         }
 
-    def get_commands_for_role(self, role: str) -> Dict[str, Dict[str, Any]]:
+    async def get_commands_for_role(self, context: ConversationContext, role: str) -> Dict[str, Dict[str, Any]]:
         """
-        Get all commands available for a specific role.
+        Get all commands available for a specific role and template.
+
+        This method considers both:
+        1. Basic role-based permissions (coordinator vs team)
+        2. Template-specific permissions (default vs context transfer)
 
         Args:
+            context: The conversation context
             role: The user role
 
         Returns:
-            Dictionary of commands available to the role
+            Dictionary of commands available to the role in the current template
         """
-        return {name: cmd for name, cmd in self.commands.items() if self.is_authorized(name, role)}
+        # First filter by basic role permissions
+        role_commands = {name: cmd for name, cmd in self.commands.items() if self.is_authorized(name, role)}
+
+        # Now filter by template-specific permissions
+        template_filtered_commands = {}
+
+        for name, cmd in role_commands.items():
+            # Check template-specific permissions
+            has_permission, _ = await check_command_permission(context, name)
+            if has_permission:
+                # Check if this command is disallowed in context transfer mode
+                is_context_transfer = await is_context_transfer_template(context)
+                if is_context_transfer:
+                    # List of commands not available in context transfer mode
+                    context_transfer_disallowed = ["add-goal", "mark-criterion-completed", "report-project-completion"]
+
+                    if name in context_transfer_disallowed:
+                        continue  # Skip this command in context transfer mode
+
+                template_filtered_commands[name] = cmd
+
+        return template_filtered_commands
 
     async def process_command(self, context: ConversationContext, message: ConversationMessage, role: str) -> bool:
         """
@@ -158,7 +185,7 @@ class CommandRegistry:
             )
             return True
 
-        # Check if user is authorized to use this command
+        # Check if user is authorized for this command based on role
         if not self.is_authorized(command_name, role):
             await context.send_messages(
                 NewConversationMessage(
@@ -168,7 +195,33 @@ class CommandRegistry:
             )
             return True
 
+        # Check for template-specific permissions using the enhanced permission system
+        has_permission, error_message = await check_command_permission(context, command_name)
+        if not has_permission and error_message is not None:
+            await context.send_messages(
+                NewConversationMessage(
+                    content=error_message,
+                    message_type=MessageType.notice,
+                )
+            )
+            return True
+
         try:
+            # Check if this command is disallowed in context transfer mode
+            is_context_transfer = await is_context_transfer_template(context)
+            if is_context_transfer:
+                # List of commands not available in context transfer mode
+                context_transfer_disallowed = ["add-goal", "mark-criterion-completed", "report-project-completion"]
+
+                if command_name in context_transfer_disallowed:
+                    await context.send_messages(
+                        NewConversationMessage(
+                            content=f"The /{command_name} command is not available in Context Transfer mode.",
+                            message_type=MessageType.notice,
+                        )
+                    )
+                    return True
+
             # Execute the command handler
             await self.commands[command_name]["handler"](context, message, args)
             return True
@@ -418,7 +471,7 @@ async def handle_help_command(context: ConversationContext, message: Conversatio
     metadata = conversation.metadata or {}
     setup_complete = metadata.get("setup_complete", False)
     assistant_mode = metadata.get("assistant_mode", "setup")
-    metadata_role = metadata.get("project_role")
+    # We don't need to use the role from metadata here
 
     # First check if project ID exists - if it does, setup should be considered complete
     project_id = await ProjectManager.get_project_id(context)
@@ -428,12 +481,13 @@ async def handle_help_command(context: ConversationContext, message: Conversatio
 
         # If metadata doesn't reflect this, try to get actual role
         if not metadata.get("setup_complete", False):
+            # Check if we have a valid role
             role = await ConversationProjectManager.get_conversation_role(context)
-            if role:
-                metadata_role = role.value
-            else:
+            # We retrieved the role but don't need to use it here since we're
+            # just checking if setup is complete
+            if not role:
                 # Default to team mode if we can't determine role
-                metadata_role = "team"
+                pass
 
     # Special handling for setup mode - only if we truly have no project
     if not setup_complete and assistant_mode == "setup" and not project_id:
@@ -495,20 +549,12 @@ Type `/help` to see all available commands for your role.
         return
 
     # Normal (non-setup) help processing
-    # Then check the stored role from project storage - this is the authoritative source
-    stored_role = await ConversationProjectManager.get_conversation_role(context)
-    stored_role_value = stored_role.value if stored_role else None
+    # Use the centralized role detection utility
+    detected_role = await get_conversation_role(context)
+    role = detected_role.value if detected_role else metadata.get("project_role", "coordinator")
 
-    # Log the roles for debugging
-    logger.debug(f"Role detection in help command - Metadata role: {metadata_role}, Stored role: {stored_role_value}")
-
-    # If we have a stored role but metadata is different, use stored role (more reliable)
-    if stored_role_value and metadata_role != stored_role_value:
-        logger.warning(f"Role mismatch in help command! Metadata: {metadata_role}, Storage: {stored_role_value}")
-        role = stored_role_value
-    else:
-        # Otherwise use metadata or default to coordinator
-        role = metadata_role or "coordinator"  # Default to coordinator if not set
+    # Log for debugging
+    logger.debug(f"Role detection in help command using centralized utility: {role}")
 
     # If a specific command is specified, show detailed help for that command
     if args:
@@ -541,14 +587,18 @@ Type `/help` to see all available commands for your role.
             )
         return
 
-    # Otherwise show all available commands for the current role
-    available_commands = command_registry.get_commands_for_role(role)
+    # Otherwise show all available commands for the current role and template
+    available_commands = await command_registry.get_commands_for_role(context, role)
 
-    # Format help text based on role
+    # Check if this is context transfer template
+    is_context_transfer = await is_context_transfer_template(context)
+    template_name = "Context Transfer" if is_context_transfer else "Project Assistant"
+
+    # Format help text based on role and template
     if role == "coordinator":
-        help_text = "## Assistant Commands (Coordinator Mode)\n\n"
+        help_text = f"## Assistant Commands (Coordinator Mode - {template_name})\n\n"
     else:
-        help_text = "## Assistant Commands (Team Mode)\n\n"
+        help_text = f"## Assistant Commands (Team Mode - {template_name})\n\n"
 
     # Group commands by category
     project_commands = []
@@ -576,30 +626,59 @@ Type `/help` to see all available commands for your role.
 
     # Add sections to help text if they have commands
     if project_commands:
-        help_text += "### Project Configuration\n" + "\n".join(project_commands) + "\n\n"
+        if is_context_transfer:
+            help_text += "### Content Management\n" + "\n".join(project_commands) + "\n\n"
+        else:
+            help_text += "### Project Configuration\n" + "\n".join(project_commands) + "\n\n"
 
     if whiteboard_commands:
-        help_text += "### Whiteboard Management\n" + "\n".join(whiteboard_commands) + "\n\n"
+        if is_context_transfer:
+            help_text += "### Knowledge Management\n" + "\n".join(whiteboard_commands) + "\n\n"
+        else:
+            help_text += "### Whiteboard Management\n" + "\n".join(whiteboard_commands) + "\n\n"
 
     if team_commands:
         help_text += "### Team Management\n" + "\n".join(team_commands) + "\n\n"
 
     if request_commands:
-        help_text += "### Information Request Management\n" + "\n".join(request_commands) + "\n\n"
+        if is_context_transfer:
+            help_text += "### Knowledge Request Management\n" + "\n".join(request_commands) + "\n\n"
+        else:
+            help_text += "### Information Request Management\n" + "\n".join(request_commands) + "\n\n"
 
-    if status_commands:
+    if status_commands and not is_context_transfer:  # Skip this section in context transfer
         help_text += "### Status Management\n" + "\n".join(status_commands) + "\n\n"
 
     if info_commands:
         help_text += "### Information\n" + "\n".join(info_commands) + "\n\n"
 
-    # Add role-specific guidance
-    if role == "coordinator":
-        help_text += (
-            "As a Coordinator, you are responsible for defining the project and responding to team member requests."
-        )
+    # Add role-specific and template-specific guidance
+    if is_context_transfer:
+        if role == "coordinator":
+            help_text += (
+                "As a Coordinator in Context Transfer mode, you are responsible for "
+                "sharing knowledge and responding to team member requests for information. "
+                "The whiteboard is your primary tool for organizing content."
+            )
+        else:
+            help_text += (
+                "As a Team member in Context Transfer mode, you can explore shared "
+                "knowledge, request clarification or additional information, and use the "
+                "whiteboard to better understand the material provided."
+            )
     else:
-        help_text += "As a Team member, you can access project information, request information, and report progress on project goals."
+        if role == "coordinator":
+            help_text += (
+                "As a Coordinator, you are responsible for defining the project brief, "
+                "creating goals, and responding to team member requests. Track progress "
+                "and manage the project lifecycle."
+            )
+        else:
+            help_text += (
+                "As a Team member, you can access project information, request information, "
+                "and report progress on project goals. Update status and mark success criteria "
+                "as completed as work progresses."
+            )
 
     await context.send_messages(
         NewConversationMessage(
@@ -809,14 +888,21 @@ async def handle_add_goal_command(context: ConversationContext, message: Convers
 async def handle_request_info_command(
     context: ConversationContext, message: ConversationMessage, args: List[str]
 ) -> None:
-    """Handle the request-info command."""
+    """Handle the request-info command with template-aware terminology."""
+    # Check if this is the context transfer template
+    is_context_transfer = await is_context_transfer_template(context)
+
+    # Use appropriate terminology based on template
+    request_type = "Knowledge request" if is_context_transfer else "Information request"
+    command_format = "Request Title|Description of what you need|priority"
+
     # Parse the command
     content = message.content.strip()[len("/request-info") :].strip()
 
     if not content or "|" not in content:
         await context.send_messages(
             NewConversationMessage(
-                content="Please provide a request title and description in the format: `/request-info Request Title|Description of what you need|priority` (priority is optional: low, medium, high, critical)",
+                content=f"Please provide a {request_type.lower()} title and description in the format: `/request-info {command_format}` (priority is optional: low, medium, high, critical)",
                 message_type=MessageType.notice,
             )
         )
@@ -831,7 +917,7 @@ async def handle_request_info_command(
         priority_str = parts[2].strip().lower() if len(parts) > 2 else "medium"
 
         if not title or not description:
-            raise ValueError("Both request title and description are required")
+            raise ValueError(f"Both {request_type.lower()} title and description are required")
 
         # Map priority string to enum
         priority_map = {
@@ -848,24 +934,25 @@ async def handle_request_info_command(
         )
 
         if success and request:
+            coordinator_action = "share the requested knowledge" if is_context_transfer else "respond to your request"
             await context.send_messages(
                 NewConversationMessage(
-                    content=f"Information request '{title}' created successfully with {priority_str} priority. The Coordinator has been notified and will respond to your request.",
+                    content=f"{request_type} '{title}' created successfully with {priority_str} priority. The Coordinator has been notified and will {coordinator_action}.",
                     message_type=MessageType.chat,
                 )
             )
         else:
             await context.send_messages(
                 NewConversationMessage(
-                    content="Failed to create information request. Please try again.",
+                    content=f"Failed to create {request_type.lower()}. Please try again.",
                     message_type=MessageType.notice,
                 )
             )
     except Exception as e:
-        logger.exception(f"Error creating information request: {e}")
+        logger.exception(f"Error creating {request_type.lower()}: {e}")
         await context.send_messages(
             NewConversationMessage(
-                content=f"Error creating information request: {str(e)}",
+                content=f"Error creating {request_type.lower()}: {str(e)}",
                 message_type=MessageType.notice,
             )
         )
@@ -940,14 +1027,21 @@ async def handle_update_status_command(
 async def handle_resolve_request_command(
     context: ConversationContext, message: ConversationMessage, args: List[str]
 ) -> None:
-    """Handle the resolve-request command."""
+    """Handle the resolve-request command with template-aware terminology."""
+    # Check if this is the context transfer template
+    is_context_transfer = await is_context_transfer_template(context)
+
+    # Use appropriate terminology based on template
+    request_type = "Knowledge request" if is_context_transfer else "Information request"
+    command_format = "request_id|Resolution information here"
+
     # Parse the command
     content = message.content.strip()[len("/resolve-request") :].strip()
 
     if not content or "|" not in content:
         await context.send_messages(
             NewConversationMessage(
-                content="Please provide a request ID and resolution in the format: `/resolve-request request_id|Resolution information here`",
+                content=f"Please provide a {request_type.lower()} ID and resolution in the format: `/resolve-request {command_format}`",
                 message_type=MessageType.notice,
             )
         )
@@ -960,13 +1054,13 @@ async def handle_resolve_request_command(
         resolution = resolution.strip()
 
         if not request_id or not resolution:
-            raise ValueError("Both request ID and resolution are required")
+            raise ValueError(f"Both {request_type.lower()} ID and resolution are required")
 
         # Show all information requests if the user doesn't know the ID
         if request_id.lower() == "list":
             await context.send_messages(
                 NewConversationMessage(
-                    content="Here are the active information requests:",
+                    content=f"Here are the active {request_type.lower()}s:",
                     message_type=MessageType.notice,
                 )
             )
@@ -978,7 +1072,7 @@ async def handle_resolve_request_command(
             active_requests = [r for r in requests if r.status != RequestStatus.RESOLVED]
 
             if active_requests:
-                request_list = ["## Active Information Requests\n"]
+                request_list = [f"## Active {request_type}s\n"]
 
                 for request in active_requests:
                     request_list.append(f"**ID**: `{request.request_id}`")
@@ -996,7 +1090,7 @@ async def handle_resolve_request_command(
             else:
                 await context.send_messages(
                     NewConversationMessage(
-                        content="No active information requests found.",
+                        content=f"No active {request_type.lower()}s found.",
                         message_type=MessageType.notice,
                     )
                 )
@@ -1008,16 +1102,17 @@ async def handle_resolve_request_command(
         )
 
         if success and info_request:
+            team_notification = "The knowledge has been shared" if is_context_transfer else "The Team has been notified"
             await context.send_messages(
                 NewConversationMessage(
-                    content=f"Information request '{info_request.title}' has been resolved. The Team has been notified.",
+                    content=f"{request_type} '{info_request.title}' has been resolved. {team_notification}.",
                     message_type=MessageType.chat,
                 )
             )
         else:
             await context.send_messages(
                 NewConversationMessage(
-                    content="Failed to resolve the information request. Make sure the request ID is correct and the request is not already resolved.",
+                    content=f"Failed to resolve the {request_type.lower()}. Make sure the request ID is correct and the request is not already resolved.",
                     message_type=MessageType.notice,
                 )
             )
@@ -1025,15 +1120,15 @@ async def handle_resolve_request_command(
             # Suggest listing all requests to help the user
             await context.send_messages(
                 NewConversationMessage(
-                    content="Use `/resolve-request list|` to view all information requests and their IDs.",
+                    content=f"Use `/resolve-request list|` to view all {request_type.lower()}s and their IDs.",
                     message_type=MessageType.notice,
                 )
             )
     except Exception as e:
-        logger.exception(f"Error resolving information request: {e}")
+        logger.exception(f"Error resolving {request_type.lower()}: {e}")
         await context.send_messages(
             NewConversationMessage(
-                content=f"Error resolving information request: {str(e)}",
+                content=f"Error resolving {request_type.lower()}: {str(e)}",
                 message_type=MessageType.notice,
             )
         )
@@ -1428,9 +1523,7 @@ async def process_command(context: ConversationContext, message: ConversationMes
     Returns:
         True if command was processed, False otherwise
     """
-    # Get the conversation's role
-    from .project_storage import ConversationProjectManager
-
+    # Get the conversation's role using the improved role detection
     # First check conversation metadata
     conversation = await context.get_conversation()
     metadata = conversation.metadata or {}
@@ -1539,24 +1632,12 @@ async def process_command(context: ConversationContext, message: ConversationMes
                 return True
 
     # Standard command processing for non-setup mode
-    metadata_role = metadata.get("project_role")
+    # Get role using the centralized role detection utility
+    detected_role = await get_conversation_role(context)
+    role = detected_role.value if detected_role else metadata.get("project_role", "coordinator")
 
-    # Then check the stored role from project storage - this is the authoritative source
-    stored_role = await ConversationProjectManager.get_conversation_role(context)
-    stored_role_value = stored_role.value if stored_role else None
-
-    # Log the roles for debugging
-    logger.debug(
-        f"Role detection in process_command - Metadata role: {metadata_role}, Stored role: {stored_role_value}"
-    )
-
-    # If we have a stored role but metadata is different, use stored role (more reliable)
-    if stored_role_value and metadata_role != stored_role_value:
-        logger.warning(f"Role mismatch in process_command! Metadata: {metadata_role}, Storage: {stored_role_value}")
-        role = stored_role_value
-    else:
-        # Otherwise use metadata or default to coordinator
-        role = metadata_role or "coordinator"  # Default to coordinator if not set
+    # Log for debugging
+    logger.debug(f"Role detection in process_command using centralized utility: {role}")
 
     # Process the command through the registry
     return await command_registry.process_command(context, message, role)

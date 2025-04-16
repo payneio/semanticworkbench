@@ -385,10 +385,12 @@ class TeamConversationHandler:
         # Update project info with status message showing progress
         if total_criteria > 0:
             progress_percentage = int((completed_criteria / total_criteria) * 100)
-            project_info.status_message = f"Progress: {progress_percentage}% of criteria completed ({completed_criteria}/{total_criteria})"
-        
+            project_info.status_message = (
+                f"Progress: {progress_percentage}% of criteria completed ({completed_criteria}/{total_criteria})"
+            )
+
         project_info.updated_at = datetime.utcnow()
-        
+
         # Save updated project info
         ProjectStorage.write_project_info(project_id, project_info)
 

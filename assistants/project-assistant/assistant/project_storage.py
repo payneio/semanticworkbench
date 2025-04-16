@@ -53,6 +53,11 @@ class CoordinatorConversationStorage(BaseModel):
     project_id: str
     last_updated: datetime = Field(default_factory=datetime.utcnow)
     messages: List[CoordinatorConversationMessage] = Field(default_factory=list)
+    important_messages: List[CoordinatorConversationMessage] = Field(default_factory=list)
+
+    # Maximum number of messages to keep in each collection
+    MAX_REGULAR_MESSAGES = 50
+    MAX_IMPORTANT_MESSAGES = 100
 
 
 class ProjectStorageManager:
@@ -254,9 +259,14 @@ class ProjectStorage:
         sender_name: str,
         is_assistant: bool = False,
         timestamp: Optional[datetime] = None,
+        is_important: bool = False,
     ) -> None:
         """
         Appends a message to the Coordinator conversation storage.
+
+        This method now supports two-tier storage:
+        1. Regular messages - Limited to the most recent 50 messages
+        2. Important messages - Longer retention for critical information (up to 100)
 
         Args:
             project_id: The ID of the project
@@ -265,6 +275,7 @@ class ProjectStorage:
             sender_name: The name of the sender
             is_assistant: Whether the message is from the assistant
             timestamp: The timestamp of the message (defaults to now)
+            is_important: Whether this is a high-priority message that should be kept longer
         """
         # Get existing conversation or create new one
         conversation = ProjectStorage.read_coordinator_conversation(project_id)
@@ -280,10 +291,40 @@ class ProjectStorage:
             is_assistant=is_assistant,
         )
 
-        # Add to conversation (only keep most recent 50 messages)
+        # Determine importance based on content length and keywords if not explicitly set
+        if not is_important:
+            content_length = len(content.strip())
+            important_keywords = [
+                "decision",
+                "important",
+                "deadline",
+                "milestone",
+                "priority",
+                "agreed",
+                "conclusion",
+                "requirement",
+                "goal",
+                "complete",
+                "critical",
+                "update",
+                "change",
+                "summary",
+                "knowledge",
+            ]
+            is_important = (content_length > 200) or any(keyword in content.lower() for keyword in important_keywords)
+
+        # Add to the regular messages list (limited to most recent messages)
         conversation.messages.append(new_message)
-        if len(conversation.messages) > 50:
-            conversation.messages = conversation.messages[-50:]
+        if len(conversation.messages) > conversation.MAX_REGULAR_MESSAGES:
+            conversation.messages = conversation.messages[-conversation.MAX_REGULAR_MESSAGES :]
+
+        # If important, also add to the important messages list with more retention
+        if is_important:
+            conversation.important_messages.append(new_message)
+            if len(conversation.important_messages) > conversation.MAX_IMPORTANT_MESSAGES:
+                conversation.important_messages = conversation.important_messages[
+                    -conversation.MAX_IMPORTANT_MESSAGES :
+                ]
 
         conversation.last_updated = datetime.utcnow()
 

@@ -5,15 +5,13 @@ This module provides shared functionality for team and coordinator conversation 
 helping to reduce code duplication and maintain consistency.
 """
 
-import logging
 from typing import Any, Dict, Optional
 
 from semantic_workbench_assistant.assistant_app import ConversationContext
 
 from .project_data import LogEntryType
 from .project_storage import ConversationProjectManager, ProjectRole, ProjectStorage
-
-logger = logging.getLogger(__name__)
+from .role_utils import get_conversation_role
 
 
 async def log_project_action(
@@ -72,8 +70,8 @@ async def handle_project_update(
     Returns:
         True if the update was handled, False otherwise
     """
-    # Get the current role
-    role = await ConversationProjectManager.get_conversation_role(context)
+    # Get the current role using the centralized role detection
+    role = await get_conversation_role(context)
     if not role:
         return False
 

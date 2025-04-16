@@ -1,16 +1,38 @@
-# Export the configuration models from the configs package
+"""
+Configuration models for the Project Assistant.
+
+This module exports the configuration models for the Project Assistant,
+including base classes, default project template, and context transfer template.
+"""
+
 from .configs import (
-    AssistantConfigModel,
-    ContextTransferConfigModel,
-    CoordinatorConfig,
+    # Base configuration classes
+    BaseAssistantConfigModel,
+    BaseCoordinatorConfig,
+    BaseTeamConfig,
     RequestConfig,
+    # Default template classes
+    AssistantConfigModel,
+    CoordinatorConfig,
     TeamConfig,
+    # Context transfer template classes
+    ContextTransferConfigModel,
+    ContextTransferCoordinatorConfig,
+    ContextTransferTeamConfig,
 )
 
 __all__ = [
-    "AssistantConfigModel",
-    "ContextTransferConfigModel",
-    "CoordinatorConfig",
+    # Base configuration classes
+    "BaseAssistantConfigModel",
+    "BaseCoordinatorConfig",
+    "BaseTeamConfig",
     "RequestConfig",
+    # Default template classes
+    "AssistantConfigModel",
+    "CoordinatorConfig",
     "TeamConfig",
+    # Context transfer template classes
+    "ContextTransferConfigModel",
+    "ContextTransferCoordinatorConfig",
+    "ContextTransferTeamConfig",
 ]

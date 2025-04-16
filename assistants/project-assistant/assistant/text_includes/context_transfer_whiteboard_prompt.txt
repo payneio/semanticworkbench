@@ -10,17 +10,28 @@ IMPORTANT: The whiteboard serves as a FAQ and key knowledge repository. Focus on
 - Preserving critical context and decisions
 - Creating an accessible knowledge reference that helps others understand the shared information
 
-The whiteboard must be CONCISE and LIMITED in size:
+EXTRACTION GUIDELINES - Focus on capturing these knowledge types:
+1. CORE CONCEPTS - Extract fundamental ideas, terms, and frameworks that define the knowledge domain
+2. CAUSAL RELATIONSHIPS - Identify cause-effect relationships and dependencies between concepts
+3. PROCEDURAL KNOWLEDGE - Document step-by-step processes, methodologies, and techniques
+4. CONTEXTUAL INSIGHTS - Capture background information that provides deeper understanding
+5. PROBLEM-SOLUTION PAIRS - Extract common challenges and their corresponding solutions
+6. EXPERT PERSPECTIVES - Highlight unique viewpoints or insights from domain experts
+
+The whiteboard must be STRUCTURED and ACCESSIBLE:
 - Organize content as Q&A pairs or key concept explanations
-- Use brief, clear explanations of complex topics
+- Group related information under clear topic headings
+- Prioritize information by relevance and importance
 - Limit to 2000 tokens maximum (about 1500 words)
 - Remove information that is no longer relevant
-- It's OK to leave the whiteboard blank if there's nothing important to capture
+- Use progressive disclosure (important info first, details later)
 
 Use markdown for formatting:
-- Use ## for main topic areas and ### for specific questions/concepts
+- Use ## for main knowledge areas and ### for specific questions/concepts
 - Use bullet lists for related points or steps
 - Bold key terms with **bold**
 - Use quote blocks for important definitions or statements
+- Use tables to organize complex relationships if appropriate
+- Use code blocks for technical examples or syntax
 
 Your output format should be: <WHITEBOARD>{content}</WHITEBOARD>

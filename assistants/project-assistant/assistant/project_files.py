@@ -584,6 +584,26 @@ class ProjectFileManager:
             return None
 
     @staticmethod
+    async def synchronize_files(
+        context: ConversationContext,
+        project_id: str,
+    ) -> bool:
+        """
+        Synchronize all project files to a conversation.
+
+        This is a wrapper for synchronize_files_to_team_conversation for better API
+        compatibility with function references in chat.py.
+
+        Args:
+            context: Conversation context
+            project_id: Project ID
+
+        Returns:
+            True if successful, False otherwise
+        """
+        return await ProjectFileManager.synchronize_files_to_team_conversation(context, project_id)
+
+    @staticmethod
     async def synchronize_files_to_team_conversation(
         context: ConversationContext,
         project_id: str,

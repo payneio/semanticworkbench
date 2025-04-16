@@ -103,7 +103,7 @@ class ProjectTools:
         self.context = context
         self.role = role
         self.tool_functions = ToolFunctions()
-
+        
         # Determine if this is using the context transfer template
         # We need to initialize this asynchronously later
         self.is_context_transfer = False
@@ -112,7 +112,7 @@ class ProjectTools:
         self.tool_functions.add_function(
             self.get_project_info, "get_project_info", "Get information about the current project state"
         )
-
+        
         # The suggest_next_action tool is always available regardless of role or template
         self.tool_functions.add_function(
             self.suggest_next_action, "suggest_next_action", "Suggest the next action to take in the project"
@@ -125,7 +125,7 @@ class ProjectTools:
                 "view_coordinator_conversation",
                 "View recent messages from the coordinator's conversation",
             )
-
+            
         # Register role-specific tools
         # (Template-specific tools will be updated in setup_tools_for_template method,
         # which will be called asynchronously after initialization)
@@ -136,14 +136,14 @@ class ProjectTools:
                 "create_project_brief",
                 "Create a project brief with a name and description",
             )
-
-            # Resolve requests works in all templates (name updated for context transfer in setup_tools_for_template)
+            
+            # Resolve requests works in all templates
             self.tool_functions.add_function(
                 self.resolve_information_request,
-                "resolve_information_request",
+                "resolve_information_request", 
                 "Resolve an information request with information",
             )
-
+            
             # These tools may be disabled later for context transfer template
             self.tool_functions.add_function(
                 self.add_project_goal,
@@ -167,7 +167,7 @@ class ProjectTools:
                 "delete_information_request",
                 "Delete an information request that is no longer needed",
             )
-
+            
             # These tools may be disabled later for context transfer template
             self.tool_functions.add_function(
                 self.update_project_dashboard,
@@ -175,24 +175,27 @@ class ProjectTools:
                 "Update the status and progress of the project",
             )
             self.tool_functions.add_function(
-                self.mark_criterion_completed, "mark_criterion_completed", "Mark a success criterion as completed"
+                self.mark_criterion_completed, 
+                "mark_criterion_completed", 
+                "Mark a success criterion as completed"
             )
             self.tool_functions.add_function(
-                self.report_project_completion, "report_project_completion", "Report that the project is complete"
+                self.report_project_completion, 
+                "report_project_completion", 
+                "Report that the project is complete"
             )
-
+            
     async def setup_tools_for_template(self):
         """
         Configures tools based on the active template (context transfer or default).
-
+        
         This needs to be called after initialization since it requires async operations
         to determine the template type.
         """
         # Determine if this is using context transfer template
         from .template_utils import is_context_transfer_template
-
         self.is_context_transfer = await is_context_transfer_template(self.context)
-
+        
         # If this is context transfer template, disable progress tracking tools
         if self.is_context_transfer:
             # For coordinator in context transfer mode:
@@ -200,47 +203,74 @@ class ProjectTools:
             # - Disable project lifecycle management
             if self.role == "coordinator":
                 logger.info("Context transfer template: Disabling progress tracking tools for coordinator")
-
-                # For type safety, we don't modify the function_map directly
-                # Instead, we'll make these early checks in each method
-                # Log the tools that are considered disabled for this template
-                logger.info("Context transfer template: Disabling progress tracking tools for coordinator")
-                logger.info("   - add_project_goal")
-                logger.info("   - mark_project_ready_for_working")
-
+                
+                # Create replacement function with appropriate message
+                async def disabled_add_goal(*args, **kwargs):
+                    return "This feature is not available in the Context Transfer template. Focus on sharing knowledge context instead of setting formal goals."
+                
+                async def disabled_mark_ready(*args, **kwargs):
+                    return "The Context Transfer template doesn't use project lifecycle states. Focus on organizing and sharing knowledge instead."
+                
+                # Replace the functions with disabled versions
+                self.tool_functions.function_map["add_project_goal"] = disabled_add_goal
+                self.tool_functions.function_map["mark_project_ready_for_working"] = disabled_mark_ready
+                
+                # Update descriptions to indicate limited functionality
+                self.tool_functions.schema["functions"][2]["description"] = "Not available in Context Transfer template"
+                self.tool_functions.schema["functions"][3]["description"] = "Not available in Context Transfer template"
+                
             # For team in context transfer mode:
             # - Disable progress tracking
             # - Disable dashboard updates
             # - Disable criterion completion
             elif self.role == "team":
                 logger.info("Context transfer template: Disabling progress tracking tools for team")
-
-                # For type safety, we don't modify the function_map directly
-                # Instead, we'll make these early checks in each method
-                # Log the tools that are considered disabled for this template
-                logger.info("Context transfer template: Disabling progress tracking tools for team")
-                logger.info("   - update_project_dashboard")
-                logger.info("   - mark_criterion_completed")
-                logger.info("   - report_project_completion")
-
+                
+                # Create replacement functions with appropriate messages
+                async def disabled_dashboard(*args, **kwargs):
+                    return "This feature is not available in the Context Transfer template. Focus on exploring the shared knowledge instead of tracking progress."
+                
+                async def disabled_criterion(*args, **kwargs):
+                    return "The Context Transfer template doesn't use success criteria. Focus on asking questions about the shared knowledge context instead."
+                    
+                async def disabled_completion(*args, **kwargs):
+                    return "The Context Transfer template doesn't use project completion tracking. Focus on knowledge exploration instead."
+                
+                # Replace the functions with disabled versions
+                self.tool_functions.function_map["update_project_dashboard"] = disabled_dashboard
+                self.tool_functions.function_map["mark_criterion_completed"] = disabled_criterion
+                self.tool_functions.function_map["report_project_completion"] = disabled_completion
+                
+                # Update descriptions to indicate limited functionality
+                self.tool_functions.schema["functions"][4]["description"] = "Not available in Context Transfer template"
+                self.tool_functions.schema["functions"][5]["description"] = "Not available in Context Transfer template"
+                self.tool_functions.schema["functions"][6]["description"] = "Not available in Context Transfer template"
+                
             # Update method and error messages to be template-aware
             # For information requests
-            if "create_information_request" in self.tool_functions.function_map and self.is_context_transfer:
-                # We'll handle custom descriptions through behavior differences
-                # in the individual method implementations
-                logger.info("Context transfer template: Using knowledge request terminology")
-
-            # Setup tools is complete
-            logger.info(f"Template-specific tools configured. Context transfer: {self.is_context_transfer}")
+            if "create_information_request" in self.tool_functions.function_map:
+                # Give the tool a more appropriate name in the context transfer template
+                if self.is_context_transfer:
+                    # Find the index in the schema for this function
+                    for i, func in enumerate(self.tool_functions.schema["functions"]):
+                        if func["name"] == "create_information_request":
+                            # Update the description to be more appropriate
+                            self.tool_functions.schema["functions"][i]["description"] = "Create a knowledge request for more information"
+                "delete_information_request",
+                "Delete an information request that is no longer needed",
+            )
+            self.tool_functions.add_function(
+                self.detect_information_request_needs,
+                "detect_information_request_needs",
+                "Analyze user message to detect potential information request needs",
+            )
+            self.tool_functions.add_function(
+                self.view_coordinator_conversation,
+                "view_coordinator_conversation",
+                "View the Coordinator conversation messages to understand the project context and planning discussions",
+            )
 
         # Common detection tool for both roles
-        self.tool_functions.add_function(
-            self.detect_information_request_needs,
-            "detect_information_request_needs",
-            "Analyze user message to detect potential information request needs",
-        )
-
-        # Common suggestion tool for both roles
         self.tool_functions.add_function(
             self.suggest_next_action,
             "suggest_next_action",
@@ -250,10 +280,6 @@ class ProjectTools:
     async def get_project_info(self, info_type: Literal["all", "brief", "whiteboard", "dashboard", "requests"]) -> str:
         """
         Get information about the current project.
-
-        Works in both templates but with different available information:
-        - In Default template: Shows project brief, goals, whiteboard, dashboard, and information requests
-        - In Context Transfer template: Shows transferred context in the whiteboard and knowledge requests
 
         Args:
             info_type: Type of information to retrieve. Must be one of: all, brief, whiteboard, dashboard, requests.
@@ -284,31 +310,23 @@ class ProjectTools:
                     output.append("\n### Goals:\n")
 
                     for i, goal in enumerate(brief.goals):
-                        # For default template, show detailed goal progress
-                        if not self.is_context_transfer:
-                            # Count completed criteria
-                            completed = sum(1 for c in goal.success_criteria if c.completed)
-                            total = len(goal.success_criteria)
+                        # Count completed criteria
+                        completed = sum(1 for c in goal.success_criteria if c.completed)
+                        total = len(goal.success_criteria)
 
-                            output.append(f"{i + 1}. **{goal.name}** - {goal.description}")
+                        output.append(f"{i + 1}. **{goal.name}** - {goal.description}")
 
-                            if goal.success_criteria:
-                                output.append(f"   Progress: {completed}/{total} criteria complete")
-                                output.append("   Success Criteria:")
+                        if goal.success_criteria:
+                            output.append(f"   Progress: {completed}/{total} criteria complete")
+                            output.append("   Success Criteria:")
 
-                                for j, criterion in enumerate(goal.success_criteria):
-                                    status = "✅" if criterion.completed else "⬜"
-                                    output.append(f"   {status} {criterion.description}")
-                        else:
-                            # For context transfer, just show goal names without tracking
-                            output.append(f"{i + 1}. **{goal.name}** - {goal.description}")
+                            for j, criterion in enumerate(goal.success_criteria):
+                                status = "✅" if criterion.completed else "⬜"
+                                output.append(f"   {status} {criterion.description}")
 
                         output.append("")
                 else:
-                    if self.is_context_transfer:
-                        output.append("\n*No knowledge areas defined yet.*")
-                    else:
-                        output.append("\n*No goals defined yet.*")
+                    output.append("\n*No goals defined yet.*")
 
         # Get project whiteboard if requested
         if info_type in ["all", "whiteboard"]:
@@ -361,26 +379,17 @@ class ProjectTools:
             requests = ProjectStorage.get_all_information_requests(project_id)
 
             if requests:
-                if self.is_context_transfer:
-                    output.append("\n## Knowledge Requests\n")
-                else:
-                    output.append("\n## Information Requests\n")
+                output.append("\n## Information Requests\n")
 
                 # Group requests by status
                 active_requests = [r for r in requests if r.status != RequestStatus.RESOLVED]
                 resolved_requests = [r for r in requests if r.status == RequestStatus.RESOLVED]
 
                 if active_requests:
-                    if self.is_context_transfer:
-                        output.append("### Active Knowledge Requests")
-                        output.append(
-                            '\n> 📋 **FOR COORDINATOR AGENTS:** To resolve a knowledge request, first get the Request ID below, then use `resolve_information_request(request_id="exact-id-here", resolution="your solution")`. Do NOT use the request title as the ID.\n'
-                        )
-                    else:
-                        output.append("### Active Requests")
-                        output.append(
-                            '\n> 📋 **FOR COORDINATOR AGENTS:** To resolve a request, first get the Request ID below, then use `resolve_information_request(request_id="exact-id-here", resolution="your solution")`. Do NOT use the request title as the ID.\n'
-                        )
+                    output.append("### Active Requests")
+                    output.append(
+                        '\n> 📋 **FOR COORDINATOR AGENTS:** To resolve a request, first get the Request ID below, then use `resolve_information_request(request_id="exact-id-here", resolution="your solution")`. Do NOT use the request title as the ID.\n'
+                    )
 
                     for request in active_requests:
                         priority_marker = {
@@ -402,10 +411,7 @@ class ProjectTools:
                         output.append("")
 
                 if resolved_requests and info_type == "requests":
-                    if self.is_context_transfer:
-                        output.append("### Resolved Knowledge Requests\n")
-                    else:
-                        output.append("### Resolved Requests\n")
+                    output.append("### Resolved Requests\n")
 
                     for request in resolved_requests[:5]:  # Show only the 5 most recent
                         output.append(f"✅ **{request.title}** ({request.status.value})")
@@ -416,12 +422,8 @@ class ProjectTools:
 
                         output.append("")
             elif info_type == "requests":
-                if self.is_context_transfer:
-                    output.append("\n## Knowledge Requests\n")
-                    output.append("*No knowledge requests created yet.*")
-                else:
-                    output.append("\n## Information Requests\n")
-                    output.append("*No information requests created yet.*")
+                output.append("\n## Information Requests\n")
+                output.append("*No information requests created yet.*")
 
         # If no data was found for any category
         if not output:
@@ -484,9 +486,9 @@ class ProjectTools:
         Returns:
             A message indicating success or failure
         """
-        # Check if this is context transfer template
-        if self.is_context_transfer:
-            return "This feature is not available in the Context Transfer template. Focus on sharing knowledge context instead of setting formal goals."
+        config = await assistant_config.get(self.context.assistant)
+        if not config.track_progress:
+            return "Progress tracking is not enabled for this template."
 
         if self.role != "coordinator":
             return "Only Coordinator can add project goals."
@@ -523,8 +525,6 @@ class ProjectTools:
         Resolve an information request with information.
 
         [COORDINATOR ONLY] This tool is only available to Coordinator agents.
-
-        In Context Transfer template, this is used to provide knowledge that was missing from the transferred context.
 
         Args:
             request_id: IMPORTANT! Use the exact Request ID value from get_project_info output
@@ -576,8 +576,6 @@ Example: resolve_information_request(request_id="abc123-def-456", resolution="Yo
 
         This is the MAIN TOOL FOR TEAM MEMBERS to request information, documents, or assistance from the Coordinator.
         Team members should use this tool whenever they need something from the Coordinator.
-
-        In Context Transfer template, this is used to request knowledge that is missing from the transferred context.
 
         Args:
             title: The title of the request (be specific and clear)
@@ -644,9 +642,9 @@ Example: resolve_information_request(request_id="abc123-def-456", resolution="Yo
         Returns:
             A message indicating success or failure
         """
-        # Check if this is context transfer template
-        if self.is_context_transfer:
-            return "This feature is not available in the Context Transfer template. Focus on exploring the shared knowledge instead of tracking progress."
+        config = await assistant_config.get(self.context.assistant)
+        if not config.track_progress:
+            return "Progress tracking is not enabled for this template."
 
         if self.role != "team":
             return "Only Team members can update project dashboard."
@@ -691,9 +689,9 @@ Example: resolve_information_request(request_id="abc123-def-456", resolution="Yo
         Returns:
             A message indicating success or failure
         """
-        # Check if this is context transfer template
-        if self.is_context_transfer:
-            return "The Context Transfer template doesn't use success criteria. Focus on asking questions about the shared knowledge context instead."
+        config = await assistant_config.get(self.context.assistant)
+        if not config.track_progress:
+            return "Progress tracking is not enabled for this template."
 
         if self.role != "team":
             return "Only Team members can mark criteria as completed."
@@ -825,9 +823,9 @@ Example: resolve_information_request(request_id="abc123-def-456", resolution="Yo
         Returns:
             A message indicating success or failure
         """
-        # Check if this is context transfer template
-        if self.is_context_transfer:
-            return "The Context Transfer template doesn't use project lifecycle states. Focus on organizing and sharing knowledge instead."
+        config = await assistant_config.get(self.context.assistant)
+        if not config.track_progress:
+            return "Progress tracking is not enabled for this template."
 
         if self.role != "coordinator":
             return "Only Coordinator can mark a project as ready for working."
@@ -887,7 +885,7 @@ Example: resolve_information_request(request_id="abc123-def-456", resolution="Yo
                 updated_at=datetime.utcnow(),
             )
             ProjectStorage.write_project_info(project_id, project_info)
-
+            
             # Use project_info directly instead of dashboard
             dashboard = project_info
 
@@ -943,9 +941,9 @@ Example: resolve_information_request(request_id="abc123-def-456", resolution="Yo
         Returns:
             A message indicating success or failure
         """
-        # Check if this is context transfer template
-        if self.is_context_transfer:
-            return "The Context Transfer template doesn't use project completion tracking. Focus on knowledge exploration instead."
+        config = await assistant_config.get(self.context.assistant)
+        if not config.track_progress:
+            return "Progress tracking is not enabled for this template."
 
         if self.role != "team":
             return "Only Team members can report project completion."
@@ -1695,13 +1693,30 @@ async def get_project_tools(context: ConversationContext, role: str) -> ProjectT
     # Create the ProjectTools instance
     project_tools = ProjectTools(context, role)
 
-    # Configure tools based on the active template
-    await project_tools.setup_tools_for_template()
+    config = await assistant_config.get(context.assistant)
 
-    # Log the initialization
-    from .template_utils import get_template_name
+    # If progress tracking is disabled, remove progress-related tools
+    if not config.track_progress:
+        # Get original tool functions
+        tool_functions = project_tools.tool_functions
 
-    template_name = await get_template_name(context)
-    logger.info(f"Project tools initialized for {template_name} template with role {role}")
+        # List of progress-related functions to remove
+        progress_functions = [
+            "add_project_goal",
+            "mark_criterion_completed",
+            "mark_project_ready_for_working",
+            "report_project_completion",
+            "update_project_dashboard",
+        ]
+
+        # Remove progress-related functions
+        for func_name in progress_functions:
+            if func_name in tool_functions.function_map:
+                del tool_functions.function_map[func_name]
+
+        # Log the modifications for debugging
+        # Access the template_id using the correct property name (_template_id)
+        template_id = context.assistant._template_id
+        logger.info(f"Progress tracking disabled for template {template_id}, removed progress tools")
 
     return project_tools

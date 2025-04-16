@@ -149,6 +149,12 @@ Run the linter to check for code quality issues:
 make lint
 ```
 
+#### Formatting
+Run the code formatter:
+```bash
+make format
+```
+
 #### Type Checking
 To check for type issues, use the following command:
 
@@ -201,7 +207,7 @@ uv run python -m pytest tests/test_file.py -v
 
 
 - If you want to run python scripts, you MUST use `uv` from the project directory for them to be in the correct environment.
-- Test your changes with `make lint && make type-check && make test` from the project directory.
+- Test your changes with `make lint && make format && make type-check && make test` from the project directory.
 - Put all imports at the top of files.
 - You have access to logs in .data/logs. They have timestamps in the name, so the latests logs are sorted last.
 

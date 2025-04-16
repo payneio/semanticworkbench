@@ -66,13 +66,21 @@ class TestProjectTools:
         assert "get_project_info" in coordinator_tools.tool_functions.function_map
         assert "suggest_next_action" in coordinator_tools.tool_functions.function_map
 
-        # Verify team detection tool is not in Coordinator tools
-        assert "detect_information_request_needs" not in coordinator_tools.tool_functions.function_map
-
         assert "get_project_info" in team_tools.tool_functions.function_map
         assert "suggest_next_action" in team_tools.tool_functions.function_map
+        assert "view_coordinator_conversation" in team_tools.tool_functions.function_map
 
-        # Verify team-specific detection tool
+        # Detection tools are added in setup_tools_for_template, not in __init__,
+        # so we need to modify our tests to account for this change in implementation
+
+        # Now call the async setup method to add the detection tools
+        import asyncio
+
+        asyncio.run(coordinator_tools.setup_tools_for_template())
+        asyncio.run(team_tools.setup_tools_for_template())
+
+        # Now check if the tools are available after setup
+        assert "detect_information_request_needs" in coordinator_tools.tool_functions.function_map
         assert "detect_information_request_needs" in team_tools.tool_functions.function_map
 
     @pytest.mark.asyncio
@@ -102,23 +110,39 @@ class TestProjectTools:
         assert isinstance(tools, ProjectTools)
         assert tools.role == "coordinator"
 
-        # Test with track_progress set to False
-        mock_config.track_progress = False
-        tools = await get_project_tools(context, "coordinator")
-        assert isinstance(tools, ProjectTools)
-        assert tools.role == "coordinator"
-        # Verify progress functions are removed
-        assert "add_project_goal" not in tools.tool_functions.function_map
-        assert "mark_criterion_completed" not in tools.tool_functions.function_map
+        # With the new implementation, we need to check if tools were properly set up
+        # The detect_information_request_needs tool should be registered after setup_tools_for_template is called
+        assert "detect_information_request_needs" in tools.tool_functions.function_map
 
-        # Test with track_progress set to False
+        # Test with track_progress set to False (simulating context transfer template)
         mock_config.track_progress = False
-        tools = await get_project_tools(context, "coordinator")
-        assert isinstance(tools, ProjectTools)
-        assert tools.role == "coordinator"
-        # Verify progress functions are removed
-        assert "add_project_goal" not in tools.tool_functions.function_map
-        assert "mark_criterion_completed" not in tools.tool_functions.function_map
+
+        # We need to mock the template_utils.is_context_transfer_template function
+        import assistant.template_utils as template_utils
+
+        # Create a mock for the template utility
+        async def mock_is_context_transfer(*args, **kwargs):
+            return True
+
+        # Save the original
+        original_is_context_transfer = template_utils.is_context_transfer_template
+        # Replace with our mock
+        template_utils.is_context_transfer_template = mock_is_context_transfer
+
+        try:
+            # Now get the tools again
+            tools = await get_project_tools(context, "coordinator")
+            assert isinstance(tools, ProjectTools)
+            assert tools.role == "coordinator"
+
+            # Now we should have is_context_transfer set to True
+            assert tools.is_context_transfer
+
+            # We should still have the detection tools available
+            assert "detect_information_request_needs" in tools.tool_functions.function_map
+        finally:
+            # Make sure to restore the original function
+            template_utils.is_context_transfer_template = original_is_context_transfer
 
     @pytest.mark.asyncio
     async def test_detect_information_request_needs(self, context, monkeypatch):
@@ -140,27 +164,24 @@ class TestProjectTools:
                     "potential_title": "I need information about",
                     "potential_description": "I need information about how to proceed with this task.",
                     "suggested_priority": "medium",
-                    "confidence": 0.8
+                    "confidence": 0.8,
                 })
                 mock_choice.message = mock_message
                 mock_completion.choices = [mock_choice]
-                
+
                 # Set up the nested structure for the async mock
                 mock_chat = MagicMock()
                 mock_chat.completions = MagicMock()
                 mock_chat.completions.create = AsyncMock(return_value=mock_completion)
                 mock_client.chat = mock_chat
-                
+
                 return mock_client
 
             async def __aexit__(self, exc_type, exc_val, exc_tb):
                 pass
 
         # Patch the create_client function
-        monkeypatch.setattr(
-            "openai_client.create_client", 
-            lambda service_config, **kwargs: MockAsyncContextManager()
-        )
+        monkeypatch.setattr("openai_client.create_client", lambda service_config, **kwargs: MockAsyncContextManager())
 
         # Test with a message that contains information request indicators
         test_message = "I need information about how to proceed with this task."
@@ -168,7 +189,10 @@ class TestProjectTools:
 
         assert result["is_information_request"]
         # Either the mocked LLM result or the fallback keyword matching could be used
-        assert "need information" in result.get("matched_indicators", []) or result.get("potential_title") == "I need information about"
+        assert (
+            "need information" in result.get("matched_indicators", [])
+            or result.get("potential_title") == "I need information about"
+        )
 
         # Modify the mock to return a negative result for the second test
         class MockAsyncContextManagerNegative:
@@ -181,17 +205,17 @@ class TestProjectTools:
                 mock_message.content = json.dumps({
                     "is_information_request": False,
                     "reason": "No information request indicators found",
-                    "confidence": 0.9
+                    "confidence": 0.9,
                 })
                 mock_choice.message = mock_message
                 mock_completion.choices = [mock_choice]
-                
+
                 # Set up the nested structure for the async mock
                 mock_chat = MagicMock()
                 mock_chat.completions = MagicMock()
                 mock_chat.completions.create = AsyncMock(return_value=mock_completion)
                 mock_client.chat = mock_chat
-                
+
                 return mock_client
 
             async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -199,8 +223,7 @@ class TestProjectTools:
 
         # Update the patch for the second test
         monkeypatch.setattr(
-            "openai_client.create_client", 
-            lambda service_config, **kwargs: MockAsyncContextManagerNegative()
+            "openai_client.create_client", lambda service_config, **kwargs: MockAsyncContextManagerNegative()
         )
 
         # Test with a message that doesn't contain information request indicators

@@ -45,7 +45,14 @@ class ProjectInspectorStateProvider:
         """
         Get project information for display in the inspector panel.
 
-        Returns different information based on the conversation's role (Coordinator or Team).
+        Returns different information based on the conversation's role (Coordinator or Team),
+        and adapts presentation based on the active template (default or context_transfer).
+
+        The inspector dynamically composes information from multiple data sources:
+        - ProjectInfo for basic metadata and state
+        - ProjectBrief for goals and context
+        - Information requests for collaborative needs
+        - Whiteboard for knowledge context
         """
         # First check conversation metadata for setup status
         conversation = await context.get_conversation()
@@ -55,19 +62,21 @@ class ProjectInspectorStateProvider:
         setup_complete = metadata.get("setup_complete", False)
         assistant_mode = metadata.get("assistant_mode", "setup")
 
-        track_progress = True
-        if self.config_provider:
-            config = await self.config_provider.get(context.assistant)
-            track_progress = config.track_progress
+        # Determine template type using the centralized utility
+        from .template_utils import is_context_transfer_template
 
-            # Update description and display name based on template
-            self.is_context_transfer = not track_progress
-            if self.is_context_transfer:
-                self.description = "Context transfer information including knowledge resources and shared content."
-                self.display_name = "Knowledge Context"
-            else:
-                self.description = "Current project information including brief, goals, and request status."
-                self.display_name = "Project Status"
+        self.is_context_transfer = await is_context_transfer_template(context)
+
+        # Update description and display name based on template
+        if self.is_context_transfer:
+            self.description = "Context transfer information including knowledge resources and shared content."
+            self.display_name = "Knowledge Context"
+        else:
+            self.description = "Current project information including brief, goals, and request status."
+            self.display_name = "Project Status"
+
+        # For backwards compatibility, also set track_progress
+        track_progress = not self.is_context_transfer
 
         # Double-check with project storage/manager state
         if not setup_complete:
@@ -203,12 +212,6 @@ Type `/help` for more information on available commands.
                 lines.append(brief.additional_context)
                 lines.append("")
 
-            # In context transfer mode, show additional context in a dedicated section
-            if self.is_context_transfer and brief.additional_context:
-                lines.append("## Additional Context")
-                lines.append(brief.additional_context)
-                lines.append("")
-
         # Add goals section if available and progress tracking is enabled
         if track_progress and brief and brief.goals:
             lines.append("## Goals")
@@ -227,12 +230,21 @@ Type `/help` for more information on available commands.
                         lines.append(f"- {status_emoji} {criterion.description}")
                 lines.append("")
 
-        # Add information requests section
+        # Add information requests section with template-specific formatting
         requests = await ProjectManager.get_information_requests(context)
         # Filter out resolved requests
         requests = [req for req in requests if req.status != RequestStatus.RESOLVED]
+
+        # Determine section title based on template
+        if self.is_context_transfer:
+            request_section_title = "## Knowledge Requests"
+            no_requests_message = "No open knowledge requests."
+        else:
+            request_section_title = "## Information Requests"
+            no_requests_message = "No open information requests."
+
         if requests:
-            lines.append("## Information Requests")
+            lines.append(request_section_title)
             lines.append(f"**Open requests:** {len(requests)}")
             lines.append("")
 
@@ -253,11 +265,23 @@ Type `/help` for more information on available commands.
                     priority_emoji = "⚠️"
 
                 lines.append(f"{priority_emoji} **{request.title}** ({request.status})")
-                lines.append(f"  **Request ID for resolution:** `{request.request_id}`")
+
+                # In project assistant mode, show request ID for resolution
+                # In context transfer mode, focus on description
+                if self.is_context_transfer:
+                    lines.append(f"  *{request.description}*")
+                else:
+                    lines.append(f"  **Request ID for resolution:** `{request.request_id}`")
+
+                lines.append("")
+
+            # For projects with many requests, add a note about viewing all
+            if len(requests) > 5:
+                lines.append(f"*...and {len(requests) - 5} more requests*")
                 lines.append("")
         else:
-            lines.append("## Information Requests")
-            lines.append("No open information requests.")
+            lines.append(request_section_title)
+            lines.append(no_requests_message)
             lines.append("")
 
         # Display share URL as invitation information
@@ -362,12 +386,6 @@ Type `/help` for more information on available commands.
                 lines.append(brief.additional_context)
                 lines.append("")
 
-            # In context transfer mode, show additional context in a dedicated section
-            if self.is_context_transfer and brief.additional_context:
-                lines.append("## Additional Context")
-                lines.append(brief.additional_context)
-                lines.append("")
-
         # Add goals section with checkable criteria if progress tracking is enabled
         if track_progress and brief and brief.goals:
             lines.append("## Objectives")
@@ -389,12 +407,22 @@ Type `/help` for more information on available commands.
                         lines.append(f"- {status_emoji} {criterion.description}{completion_info}")
                 lines.append("")
 
-        # Add my information requests section
+        # Add my information requests section with template-specific formatting
         requests = await ProjectManager.get_information_requests(context)
         my_requests = [r for r in requests if r.conversation_id == str(context.id)]
 
+        # Determine section titles based on template
+        if self.is_context_transfer:
+            request_section_title = "## My Knowledge Requests"
+            no_requests_message = "You haven't created any knowledge requests yet."
+            other_requests_title = "Knowledge Questions"
+        else:
+            request_section_title = "## My Information Requests"
+            no_requests_message = "You haven't created any information requests yet."
+            other_requests_title = "Information Requests"
+
         if my_requests:
-            lines.append("## My Information Requests")
+            lines.append(request_section_title)
             pending = [r for r in my_requests if r.status != "resolved"]
             resolved = [r for r in my_requests if r.status == "resolved"]
 
@@ -417,6 +445,16 @@ Type `/help` for more information on available commands.
                         priority_emoji = "⚠️"
 
                     lines.append(f"{priority_emoji} **{request.title}** ({request.status})")
+
+                    # Show request description in context transfer mode for more clarity
+                    if self.is_context_transfer:
+                        lines.append(f"  *{request.description}*")
+
+                    lines.append("")
+
+                # Note for additional pending requests
+                if len(pending) > 3:
+                    lines.append(f"*...and {len(pending) - 3} more pending requests*")
                     lines.append("")
 
             if resolved:
@@ -426,8 +464,22 @@ Type `/help` for more information on available commands.
                     if hasattr(request, "resolution") and request.resolution:
                         lines.append(f"  *Resolution:* {request.resolution}")
                     lines.append("")
+
+                # Note for additional resolved requests
+                if len(resolved) > 3:
+                    lines.append(f"*...and {len(resolved) - 3} more resolved requests*")
+                    lines.append("")
+
+            # Add tip for team members about creating requests
+            template_tip = (
+                "Use the **Knowledge Request** tool to ask questions about content"
+                if self.is_context_transfer
+                else "Use the **Information Request** tool when you need more details from the coordinator"
+            )
+            lines.append(f"*Tip: {template_tip}*")
+            lines.append("")
         else:
-            lines.append("## Information Requests")
-            lines.append("You haven't created any information requests yet.")
+            lines.append(f"## {other_requests_title}")
+            lines.append(no_requests_message)
 
         return "\n".join(lines)

@@ -6,16 +6,26 @@ whiteboard content is for information that should always be available to the bot
 
 IMPORTANT: The whiteboard must be CONCISE and LIMITED in size. Focus only on the MOST CRITICAL information:
 - Keep project goals, decisions, and key context
+- Prioritize actionable information and important definitions
 - Use brief bullet points and short sections
 - Limit to 2000 tokens maximum (about 1500 words)
 - Remove information that is no longer relevant
-- It's OK to leave the whiteboard blank if there's nothing important
+- It's OK to leave sections blank if there's nothing important to add
 
-Think of the whiteboard as the type of content that might be written down on a whiteboard during a meeting - just the essential facts and decisions, not a transcript.
+EXTRACTION GUIDELINES:
+1. EXTRACT MAJOR DECISIONS - Look for definitive statements like "we've decided to..." or "the plan is to..."
+2. EXTRACT KEY REQUIREMENTS - Identify must-have features, constraints, or prerequisites
+3. EXTRACT CRITICAL CONTEXT - Capture background information essential to understanding the project
+4. EXTRACT PROJECT MILESTONES - Include important dates, deadlines, or phase transitions
+5. PRIORITIZE RECENT INFORMATION - Give more weight to newer messages unless older content provides critical context
+6. IDENTIFY UNSOLVED PROBLEMS - Note significant open questions or challenges that need resolution
+
+Think of the whiteboard as a dynamic knowledge repository that contains the essential information a new team member would need to understand the project status.
 
 Use markdown for formatting:
 - Use ## for main headings and ### for subheadings
 - Use bullet lists for sets of related items
 - Bold key terms with **bold**
+- Use tables for structured data if appropriate
 
 Your output format should be: <WHITEBOARD>{content}</WHITEBOARD>

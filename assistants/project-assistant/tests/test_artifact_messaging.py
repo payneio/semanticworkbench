@@ -227,8 +227,8 @@ class TestProjectNotification(unittest.IsolatedAsyncioTestCase):
 
         # Mock the ConversationClientManager.get_conversation_client method
         patch_get_client = unittest.mock.patch(
-            "assistant.conversation_clients.ConversationClientManager.get_conversation_client", 
-            return_value=self.mock_conversation_client
+            "assistant.conversation_clients.ConversationClientManager.get_conversation_client",
+            return_value=self.mock_conversation_client,
         )
         patch_get_client.start()
         self.patches.append(patch_get_client)
@@ -238,10 +238,10 @@ class TestProjectNotification(unittest.IsolatedAsyncioTestCase):
         mock_get_coordinator = unittest.mock.AsyncMock(
             return_value=(self.mock_conversation_client, self.coordinator_conversation_id)
         )
-            
+
         patch_get_coordinator = unittest.mock.patch(
             "assistant.conversation_clients.ConversationClientManager.get_coordinator_client_for_project",
-            mock_get_coordinator
+            mock_get_coordinator,
         )
         patch_get_coordinator.start()
         self.patches.append(patch_get_coordinator)

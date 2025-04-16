@@ -33,6 +33,7 @@ from .project_storage import (
     ProjectStorage,
     ProjectStorageManager,
 )
+from .role_utils import get_conversation_role
 from .utils import get_current_user, require_current_user
 
 
@@ -366,7 +367,8 @@ class ProjectManager:
             The role (ProjectRole.COORDINATOR or ProjectRole.TEAM) if the conversation
             is part of a project, None otherwise
         """
-        return await ConversationProjectManager.get_conversation_role(context)
+        # Use the centralized role detection from role_utils
+        return await get_conversation_role(context)
 
     @staticmethod
     async def get_project_brief(context: ConversationContext) -> Optional[ProjectBrief]:
@@ -376,6 +378,9 @@ class ProjectManager:
         The project brief contains the core information about the project:
         name, description, goals, and success criteria. This is the central
         document that defines what the project is trying to accomplish.
+
+        In context transfer template, goals are interpreted as knowledge areas
+        and fields relevant only to project management are handled gracefully.
 
         Args:
             context: Current conversation context
@@ -388,7 +393,34 @@ class ProjectManager:
         if not project_id:
             return None
 
-        return ProjectStorage.read_project_brief(project_id)
+        # Read the project brief from storage
+        brief = ProjectStorage.read_project_brief(project_id)
+
+        if not brief:
+            return None
+
+        # Check if we're in context transfer template
+        from .template_utils import is_context_transfer_template
+
+        is_context_transfer = await is_context_transfer_template(context)
+
+        if is_context_transfer:
+            # In context transfer mode, ensure the brief has appropriate defaults
+            # for fields that might not be present or relevant
+
+            # Ensure goals field exists (interpreted as knowledge areas)
+            if not hasattr(brief, "goals") or brief.goals is None:
+                brief.goals = []
+
+            # Handle missing timeline (not critical in context transfer)
+            if not hasattr(brief, "timeline") or brief.timeline is None:
+                brief.timeline = None
+
+            # Ensure additional_context exists (important for knowledge sharing)
+            if not hasattr(brief, "additional_context") or brief.additional_context is None:
+                brief.additional_context = ""
+
+        return brief
 
     @staticmethod
     async def create_project_brief(
@@ -1265,7 +1297,8 @@ class ProjectManager:
         This method:
         1. Retrieves recent conversation messages
         2. Sends them to the LLM with a prompt to extract important info
-        3. Updates the whiteboard with the extracted content
+        3. Intelligently merges new content with existing whiteboard
+        4. Updates the whiteboard with the enhanced content
 
         Args:
             context: Current conversation context
@@ -1274,11 +1307,9 @@ class ProjectManager:
         Returns:
             Tuple of (success, project_kb)
         """
-        logger.error("DEBUG: auto_update_whiteboard called with conversation ID: %s", context.id)
         try:
             # Get project ID
             project_id = await ProjectManager.get_project_id(context)
-            logger.error("DEBUG: auto_update_whiteboard found project ID: %s", project_id)
             if not project_id:
                 logger.error("Cannot auto-update whiteboard: no project associated with this conversation")
                 return False, None
@@ -1293,16 +1324,28 @@ class ProjectManager:
                 logger.info("No chat history to analyze for whiteboard update")
                 return False, None
 
+            # Get existing whiteboard to facilitate intelligent merging
+            existing_whiteboard = ProjectStorage.read_project_whiteboard(project_id)
+            existing_content = ""
+            if existing_whiteboard and existing_whiteboard.content:
+                existing_content = existing_whiteboard.content
+
             # Import necessary model types
             from semantic_workbench_api_model.workbench_model import ParticipantRole
 
-            # Format the chat history for the prompt
+            # Format the chat history for the prompt - focus on most recent messages first
             chat_history_text = ""
+            # Include username if available to provide better context
             for msg in chat_history:
                 sender_type = (
                     "User" if msg.sender and msg.sender.participant_role == ParticipantRole.user else "Assistant"
                 )
-                chat_history_text += f"{sender_type}: {msg.content}\n\n"
+                # Include sender name if available (for multi-user conversations)
+                sender_name = ""
+                if msg.sender and hasattr(msg.sender, "name") and msg.sender.name:
+                    sender_name = f" ({msg.sender.name})"
+
+                chat_history_text += f"{sender_type}{sender_name}: {msg.content}\n\n"
 
             # Get config for the LLM call
             from .chat import assistant_config
@@ -1311,22 +1354,31 @@ class ProjectManager:
 
             # Load the whiteboard prompt from text includes
             from .utils import load_text_include
-
-            template_id = context.assistant._template_id
+            from .template_utils import is_context_transfer_template
 
             # Use the appropriate prompt based on the template
-            if template_id == "context_transfer":
+            is_context_transfer = await is_context_transfer_template(context)
+            if is_context_transfer:
                 whiteboard_prompt_template = load_text_include("context_transfer_whiteboard_prompt.txt")
             else:
                 whiteboard_prompt_template = load_text_include("whiteboard_auto_update_prompt.txt")
 
-            # Construct the whiteboard prompt with the chat history
+            # Construct the whiteboard prompt with context and chat history
+            # Include existing whiteboard content to support intelligent merging
             whiteboard_prompt = f"""
             {whiteboard_prompt_template}
+
+            <EXISTING_WHITEBOARD>
+            {existing_content}
+            </EXISTING_WHITEBOARD>
 
             <CHAT_HISTORY>
             {chat_history_text}
             </CHAT_HISTORY>
+            
+            IMPORTANT: If the EXISTING_WHITEBOARD already contains important information that is still relevant,
+            preserve that information and integrate it with new insights from the CHAT_HISTORY. 
+            Focus on adding new information and refining existing content rather than replacing it completely.
             """
 
             # Import necessary modules for the LLM call
@@ -1338,6 +1390,7 @@ class ProjectManager:
                     model=config.request_config.openai_model,
                     messages=[{"role": "user", "content": whiteboard_prompt}],
                     max_tokens=2500,  # Limiting to 2500 tokens to keep whiteboard content manageable
+                    temperature=0.3,  # Lower temperature for more factual and consistent extraction
                 )
 
                 # Extract the content from the completion
@@ -1397,7 +1450,7 @@ class ProjectManager:
                 return False, None
 
             # Get role - only Coordinator can complete a project
-            role = await ProjectManager.get_project_role(context)
+            role = await get_conversation_role(context)  # Using improved role detection
             if role != ProjectRole.COORDINATOR:
                 logger.error("Only Coordinator can complete a project")
                 return False, None

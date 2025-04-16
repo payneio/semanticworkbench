@@ -26,4 +26,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 * Linting/Formatting: Ruff (Python)
 * Type checking: Pyright (Python)
 * Testing: pytest (Python)
-* Package management: uv (Python)Ok.
+* Package management: uv (Python)
+
+## Project Assistant Architecture
+
+The Project Assistant supports two configuration templates:
+
+1. **Default Project Assistant** - For project management with goals, success criteria, and progress tracking
+2. **Context Transfer** - For transferring knowledge context without progress tracking
+
+Template detection happens in `template_utils.py` with the function `is_context_transfer_template()`.
+
+Within each template, there are two roles:
+
+1. **Coordinator** - Creates project brief, resolves information requests
+2. **Team Member** - Works on tasks, creates information requests
+
+When making code work with both templates:
+
+1. Use `is_context_transfer_template()` to detect the active template
+2. Check early in functions to give template-specific responses
+3. Use "Knowledge request" terminology in Context Transfer template instead of "Information request"
+4. Make progress tracking tools return helpful messages in Context Transfer template
