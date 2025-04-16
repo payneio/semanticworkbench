@@ -1337,15 +1337,38 @@ class ProjectManager:
             chat_history_text = ""
             # Include username if available to provide better context
             for msg in chat_history:
-                sender_type = (
-                    "User" if msg.sender and msg.sender.participant_role == ParticipantRole.user else "Assistant"
-                )
-                # Include sender name if available (for multi-user conversations)
-                sender_name = ""
-                if msg.sender and hasattr(msg.sender, "name") and msg.sender.name:
-                    sender_name = f" ({msg.sender.name})"
-
-                chat_history_text += f"{sender_type}{sender_name}: {msg.content}\n\n"
+                try:
+                    # Handle different message object types
+                    if isinstance(msg, tuple):
+                        # Handle the case where msg is a tuple
+                        content = msg[0] if len(msg) > 0 else ""
+                        sender_type = "User"  # Default assumption
+                        sender_name = ""
+                    else:
+                        # Handle the case where msg is a ConversationMessage
+                        content = getattr(msg, 'content', '')
+                        
+                        # Determine sender type
+                        sender_type = "Assistant"  # Default
+                        if hasattr(msg, 'sender') and msg.sender:
+                            sender = msg.sender
+                            if hasattr(sender, 'participant_role') and sender.participant_role == ParticipantRole.user:
+                                sender_type = "User"
+                            
+                            # Get sender name if available
+                            if hasattr(sender, 'name') and sender.name:
+                                sender_name = f" ({sender.name})"
+                            else:
+                                sender_name = ""
+                        else:
+                            sender_name = ""
+                    
+                    # Add message to chat history text
+                    if content:
+                        chat_history_text += f"{sender_type}{sender_name}: {content}\n\n"
+                except Exception as e:
+                    logger.warning(f"Error processing message in chat history: {e}")
+                    # Skip problematic messages
 
             # Get config for the LLM call
             from .chat import assistant_config

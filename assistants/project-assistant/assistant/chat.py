@@ -7,6 +7,7 @@
 
 
 import logging
+import time
 from typing import Any, Dict, Optional
 
 # Import for template detection
@@ -1131,12 +1132,14 @@ async def respond_to_conversation(
 
         # Create the completion
         async with openai_client.create_client(config.service_config, api_version="2024-06-01") as client:
+            start_time = time.time()
             completion = await client.chat.completions.create(
                 model=config.request_config.openai_model,
                 temperature=0.7,  # Use a default temperature instead of accessing request_config.temperature
                 max_tokens=config.request_config.max_tokens,
                 messages=messages,
             )
+            end_time = time.time()
 
             # Extract the completion content
             completion_content = completion.choices[0].message.content
@@ -1144,6 +1147,24 @@ async def respond_to_conversation(
             # If extracted content is empty, provide a default message
             if not completion_content:
                 completion_content = "I'm not sure how to respond to that message. Could you please try again?"
+            
+            # Add detailed debug info to metadata
+            if metadata:
+                # Add complete completion response for debugging
+                if "debug" not in metadata:
+                    metadata["debug"] = {}
+                
+                metadata["debug"]["completion"] = {
+                    "model": config.request_config.openai_model,
+                    "request": {
+                        "messages": messages,
+                        "temperature": 0.7,
+                        "max_tokens": config.request_config.max_tokens
+                    },
+                    "response": completion.model_dump(),
+                    "duration_seconds": round(end_time - start_time, 2),
+                    "token_usage": completion.usage.model_dump() if completion.usage else None
+                }
 
         # Send the completed message back to the user
         await context.send_messages(

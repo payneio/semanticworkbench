@@ -221,6 +221,7 @@ As a Knowledge Recipient using the Context Transfer Template:
 | **Project States** | Planning → Ready → In Progress → Complete | Not applicable |
 | **Commands** | Full set of project management commands | Knowledge sharing focused commands |
 | **Whiteboard** | Project-focused information organization | Knowledge-focused information organization |
+| **Message Storage** | Up to 50 regular, 100 important messages | Up to 50 regular, 100 important messages |
 
 ## Best Practices
 

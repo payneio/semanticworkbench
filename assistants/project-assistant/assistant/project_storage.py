@@ -8,7 +8,7 @@ import logging
 import pathlib
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 from semantic_workbench_assistant import settings
@@ -56,8 +56,8 @@ class CoordinatorConversationStorage(BaseModel):
     important_messages: List[CoordinatorConversationMessage] = Field(default_factory=list)
 
     # Maximum number of messages to keep in each collection
-    MAX_REGULAR_MESSAGES = 50
-    MAX_IMPORTANT_MESSAGES = 100
+    MAX_REGULAR_MESSAGES: ClassVar[int] = 50
+    MAX_IMPORTANT_MESSAGES: ClassVar[int] = 100
 
 
 class ProjectStorageManager:
