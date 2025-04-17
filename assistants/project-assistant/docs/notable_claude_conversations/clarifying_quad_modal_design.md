@@ -1,6 +1,8 @@
-# Conversation about clarifying a design problem
+# Backwards and forwards engineering with Claude code
 
 Note: This is an example of "backwards/reverse engineering" where the design/specs are updated based on code changes. I started out just trying to clarify a design that evolved, but ended up refreshing the entire codebase.
+
+## Design refactor (backwards engineering)
 
 Developer:
 
@@ -63,6 +65,8 @@ Excellent. We're almost there. Finally, at first we had the idea of a "dashboard
 ```
 
 _... assistant did work_
+
+## Code refactor (forward engineering)
 
 And then we play the design changes forward back into the code base...
 
@@ -222,6 +226,8 @@ This is great. Please implement the changes outlined in WORKING.md in a methodic
 
 _... assistant worked a bunch, but didn't complete everything..._
 
+## The experience of getting Claude to do a large-ish refactor
+
 Developer:
 
 ```markdown
@@ -282,7 +288,7 @@ Let's summarize what we've accomplished today:
   each template's intended use case.
 ```
 
-## Other manual interventions
+## Other manual interventions (recipe step fodder)
 
 When it paused to notify me of its updates.
 
