@@ -27,11 +27,6 @@ class ShareTools:
     def act_tools(self) -> ToolFunctions:
         fns = ToolFunctions()
 
-        # fns.add_function(
-        #     InformationRequestTools(self.context).request_information_from_user,
-        #     "request_information_from_user",
-        # )
-
         fns.add_function(
             TaskTools(self.context).add_task,
             "add_task",
@@ -56,6 +51,16 @@ class ShareTools:
             ShareSetupTools(self.context).update_brief,
             "update_brief",
         )
+
+        fns.add_function(
+            InformationRequestTools(self.context).request_information_from_user,
+            "request_information_from_user",
+        )
+
+        # fns.add_function(
+        #     InformationRequestTools(self.context).resolve_information_request,
+        #     "resolve_information_request",
+        # )
 
         fns.add_function(
             ShareSetupTools(self.context).create_invitation_message,
@@ -104,10 +109,10 @@ class ShareTools:
         """Return coordinator-specific tool functions."""
         fns = ToolFunctions()
 
-        fns.add_function(
-            InformationRequestTools(self.context).request_information_from_user,
-            "request_information_from_user",
-        )
+        # fns.add_function(
+        #     InformationRequestTools(self.context).request_information_from_user,
+        #     "request_information_from_user",
+        # )
 
         fns.add_function(
             InformationRequestTools(self.context).resolve_information_request,

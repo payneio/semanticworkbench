@@ -4,7 +4,9 @@ from typing import Any, ClassVar
 import openai_client
 from assistant_extensions.attachments import AttachmentsExtension
 from openai import BaseModel
-from openai_client import num_tokens_from_messages
+from openai.types.chat import (
+    ChatCompletionMessageParam,
+)
 from openai_client.errors import CompletionError
 from openai_client.tools import complete_with_tool_calls
 from pydantic import ConfigDict, Field
@@ -17,9 +19,9 @@ from semantic_workbench_assistant.assistant_app import (
 )
 
 from assistant.config import assistant_config
-from assistant.data import InformationRequestSource, InspectorTab, NewInformationRequest
-from assistant.domain.information_request_manager import InformationRequestManager
+from assistant.data import InspectorTab
 from assistant.domain.share_manager import ShareManager
+from assistant.domain.tasks_manager import TasksManager
 from assistant.logging import logger
 from assistant.notifications import Notifications
 from assistant.prompt_utils import (
@@ -27,7 +29,6 @@ from assistant.prompt_utils import (
     ContextStrategy,
     Instructions,
     Prompt,
-    TokenBudget,
     add_context_to_prompt,
 )
 from assistant.tools import ShareTools
@@ -40,11 +41,8 @@ class ActorOutput(BaseModel):
         response: The response from the assistant.
     """
 
-    accomplishments: str = Field(
-        description="A summary of all the actions performed and their results.",
-    )
-    user_information_requests: list[NewInformationRequest] = Field(
-        description="A list of all the information needed from the user to resolve tasks.",
+    tool_call_results: str = Field(
+        description="A summary of the tool calls taken and their results. Should not mention 'tools' or 'call', focus on the results. If no tool calls were made, this will be an empty string.",  # noqa: E501
     )
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
@@ -58,120 +56,121 @@ async def act(
     Work, work, work, work, work...
     """
 
-    if "debug" not in metadata:
-        metadata["debug"] = {}
-    debug = metadata["debug"]
+    local_conversation: list[ChatCompletionMessageParam] = []
 
-    config = await assistant_config.get(context.assistant)
-    model = config.request_config.openai_model
-    role = await ShareManager.get_conversation_role(context)
-    debug["role"] = role
-    token_budget = TokenBudget(config.request_config.max_tokens)
+    tasks = await TasksManager.get_tasks_to_work_on(context)
+    while tasks:
+        debug = metadata["debug"] or {}
+        debug["context"] = (context.to_dict(),)
+        debug["agent"] = "actor"
 
-    instructions = load_text_include("actor_instructions.md")
-    instructions = Instructions(instructions)
-    prompt = Prompt(
-        instructions=instructions,
-        context_strategy=ContextStrategy.MULTI,
-    )
-    sections = [
-        ContextSection.KNOWLEDGE_INFO,
-        ContextSection.KNOWLEDGE_BRIEF,
-        ContextSection.TARGET_AUDIENCE,
-        # ContextSection.LEARNING_OBJECTIVES,
-        ContextSection.KNOWLEDGE_DIGEST,
-        ContextSection.INFORMATION_REQUESTS,
-        # ContextSection.SUGGESTED_NEXT_ACTIONS,
-        ContextSection.ATTACHMENTS,
-        ContextSection.TASKS,
-        ContextSection.COORDINATOR_CONVERSATION,
-    ]
-    await add_context_to_prompt(
-        prompt,
-        context=context,
-        role=role,
-        model=model,
-        token_limit=config.request_config.max_tokens,
-        attachments_extension=attachments_extension,
-        attachments_config=config.attachments_config,
-        attachments_in_system_message=False,
-        include=sections,
-    )
+        config = await assistant_config.get(context.assistant)
+        model = config.request_config.openai_model
+        role = await ShareManager.get_conversation_role(context)
+        debug["role"] = role
 
-    # Calculate token count for all prompt so far.
-    completion_messages = prompt.messages()
-    token_budget.add(
-        num_tokens_from_messages(
-            model=model,
-            messages=completion_messages,
+        instructions = load_text_include("actor_instructions.md")
+        instructions = Instructions(instructions)
+        prompt = Prompt(
+            instructions=instructions,
+            context_strategy=ContextStrategy.MULTI,
         )
-    )
+        sections = [
+            ContextSection.KNOWLEDGE_INFO,
+            ContextSection.KNOWLEDGE_BRIEF,
+            ContextSection.TARGET_AUDIENCE,
+            ContextSection.KNOWLEDGE_DIGEST,
+            ContextSection.INFORMATION_REQUESTS,
+            ContextSection.ATTACHMENTS,
+            ContextSection.TASKS,
+            ContextSection.COORDINATOR_CONVERSATION,
+        ]
+        await add_context_to_prompt(
+            prompt,
+            context=context,
+            role=role,
+            model=model,
+            token_limit=config.request_config.max_tokens,
+            attachments_extension=attachments_extension,
+            attachments_config=config.attachments_config,
+            attachments_in_system_message=False,
+            include=sections,
+        )
 
-    content = ""
-    async with openai_client.create_client(config.service_config) as client:
-        try:
-            completion_args = {
-                "messages": completion_messages,
-                "model": model,
-                "max_tokens": config.request_config.response_tokens,
-                "temperature": 0.7,
-                "response_format": ActorOutput,
-            }
-            debug["completion_args"] = openai_client.serializable(completion_args)
+        local_conversation = prompt.messages()
+        async with openai_client.create_client(config.service_config) as client:
+            try:
+                completion_args = {
+                    "messages": local_conversation,
+                    "model": model,
+                    "max_tokens": config.request_config.response_tokens,
+                    "temperature": 0.7,
+                    "response_format": ActorOutput,
+                }
+                debug["completion_args"] = openai_client.serializable(completion_args)
 
-            response, _ = await complete_with_tool_calls(
-                async_client=client,
-                completion_args=completion_args,
-                tool_functions=ShareTools(context).act_tools(),
-                metadata=debug,
-                max_tool_call_rounds=32,
-            )
-
-            if response and response.choices and response.choices[0].message.parsed:
-                output: ActorOutput | None = response.choices[0].message.parsed
-                debug["completion_response"] = openai_client.serializable(response.model_dump())
-
-                if output and output.accomplishments:
-                    for req in output.user_information_requests:
-                        await InformationRequestManager.create_information_request(
-                            context=context,
-                            title=req.title,
-                            description=req.description,
-                            priority=req.priority,
-                            source=InformationRequestSource.INTERNAL,
-                        )
-                    # if output.accomplishments:
-                    await context.send_messages(
-                        NewConversationMessage(
-                            content=output.accomplishments,
-                            message_type=MessageType.notice,
-                            metadata=metadata,
-                        )
-                    )
-                    await Notifications.notify_state_update(
-                        context,
-                        [InspectorTab.DEBUG],
-                    )
-
-                return output
-
-        except CompletionError as e:
-            logger.exception(f"Exception occurred calling OpenAI chat completion: {e}")
-            debug["error"] = str(e)
-            if isinstance(e.body, dict) and "message" in e.body:
-                content = e.body.get("message", e.message)
-            elif e.message:
-                content = e.message
-            else:
-                content = "An error occurred while processing your request."
-            await context.send_messages(
-                NewConversationMessage(
-                    content=content,
-                    message_type=MessageType.notice,
-                    metadata=metadata,
+                response, new_messages = await complete_with_tool_calls(
+                    async_client=client,
+                    completion_args=completion_args,
+                    tool_functions=ShareTools(context).act_tools(),
+                    metadata=debug,
+                    max_tool_call_rounds=32,
                 )
-            )
-            return
+                openai_client.validate_completion(response)
+                local_conversation.extend(new_messages)
+
+                if response and response.choices and response.choices[0].message.parsed:
+                    output: ActorOutput | None = response.choices[0].message.parsed
+                    debug["completion_response"] = openai_client.serializable(response.model_dump())
+
+                    if output and output.tool_call_results:
+                        # for req in output.user_information_requests:
+                        #     await InformationRequestManager.create_information_request(
+                        #         context=context,
+                        #         title=req.title,
+                        #         description=req.description,
+                        #         priority=req.priority,
+                        #         source=InformationRequestSource.INTERNAL,
+                        #         debug_data=debug,
+                        #     )
+
+                        # response_message: ChatCompletionMessageParam = ChatCompletionAssistantMessageParam(
+                        #     role="assistant",
+                        #     content=output.accomplishments,
+                        # )
+                        # local_conversation.append(response_message)
+
+                        await context.send_messages(
+                            NewConversationMessage(
+                                content=output.tool_call_results,
+                                message_type=MessageType.notice,
+                                metadata=metadata,
+                            )
+                        )
+                        await Notifications.notify_state_update(
+                            context,
+                            [InspectorTab.DEBUG],
+                        )
+
+                    tasks = await TasksManager.get_unresolved_tasks(context)
+
+            except CompletionError as e:
+                logger.exception(f"Exception occurred calling OpenAI chat completion: {e}")
+                debug["error"] = str(e)
+                if isinstance(e.body, dict) and "message" in e.body:
+                    content = e.body.get("message", e.message)
+                elif e.message:
+                    content = e.message
+                else:
+                    content = "An error occurred while processing your request."
+                await context.send_messages(
+                    NewConversationMessage(
+                        content=content,
+                        message_type=MessageType.notice,
+                        metadata=metadata,
+                    )
+                )
+                return
 
 
 def get_formatted_token_count(tokens: int) -> str:

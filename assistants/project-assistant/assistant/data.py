@@ -8,9 +8,8 @@ without any artifact abstraction or unnecessary complexity.
 import uuid
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ConversationRole(str, Enum):
@@ -63,6 +62,7 @@ class BaseEntity(BaseModel):
     created_by: str
     updated_by: str
     conversation_id: str
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class LearningOutcomeAchievement(BaseModel):
@@ -120,9 +120,6 @@ class InformationRequest(BaseEntity):
     resolution: str | None = None
     resolved_at: datetime | None = None
     resolved_by: str | None = None
-
-    # History of status updates and comments
-    updates: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class NewInformationRequest(BaseModel):
@@ -194,12 +191,9 @@ class ShareLog(BaseModel):
 
 
 class TaskStatus(str, Enum):
-    """
-    Enum for the status of a task.
-    """
-
     PENDING = "pending"  # Task not yet started
     IN_PROGRESS = "in_progress"  # Currently working on (limit to ONE task at a time)
+    WAITING_FOR_USER_INPUT = "waiting_for_user_input"  # Paused, waiting for user input
     COMPLETED = "completed"  # Task finished successfully
     CANCELLED = "cancelled"  # Task no longer needed
 
@@ -215,10 +209,6 @@ class TaskPriority(str, Enum):
 
 
 class NewTaskInfo(BaseModel):
-    """
-    A class to represent a new task to be added.
-    """
-
     content: str  # Description of the task
     priority: TaskPriority = TaskPriority.MEDIUM  # Default priority is 'medium'
     status: TaskStatus = TaskStatus.PENDING  # Default status is 'pending'

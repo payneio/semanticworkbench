@@ -1,8 +1,10 @@
 from datetime import UTC, datetime
+from typing import Any
 
 from semantic_workbench_assistant.assistant_app import ConversationContext
 
 from assistant.data import (
+    ConversationRole,
     InformationRequest,
     InformationRequestSource,
     InspectorTab,
@@ -37,6 +39,7 @@ class InformationRequestManager:
         priority: RequestPriority = RequestPriority.MEDIUM,
         related_objective_ids: list[str] | None = None,
         source: InformationRequestSource = InformationRequestSource.INTERNAL,
+        debug_data: dict[str, Any] | None = None,
     ) -> InformationRequest:
         share_id = await ShareManager.get_share_id(context)
         current_user_id = await get_current_user_id(context)
@@ -54,19 +57,26 @@ class InformationRequestManager:
 
         ShareStorage.write_information_request(share_id, information_request)
 
-        await ShareManager.log_share_event(
-            context=context,
-            entry_type=LogEntryType.REQUEST_CREATED.value,
-            message=f"Created information request: {title}",
-            related_entity_id=information_request.request_id,
-            metadata={
-                "priority": priority.value,
-                "request_id": information_request.request_id,
-            },
-        )
+        # await ShareManager.log_share_event(
+        #     context=context,
+        #     entry_type=LogEntryType.REQUEST_CREATED.value,
+        #     message=f"Created information request: {title}",
+        #     related_entity_id=information_request.request_id,
+        #     metadata={
+        #         "priority": priority.value,
+        #         "request_id": information_request.request_id,
+        #     },
+        # )
 
-        await Notifications.notify_self_and_other(context, share_id, f"Information request '{title}' was created")
-        await Notifications.notify_all_state_update(context, [InspectorTab.SHARING])
+        role = await ShareManager.get_conversation_role(context)
+        if role == ConversationRole.TEAM:
+            await Notifications.notify_self_and_other(
+                context, share_id, f"Information request created: {title}", debug_data=debug_data
+            )
+            await Notifications.notify_all_state_update(context, [InspectorTab.SHARING])
+        else:
+            await Notifications.notify(context, f"Information request created: {title}", debug_data)
+            await Notifications.notify_state_update(context, [InspectorTab.SHARING])
 
         return information_request
 
@@ -101,14 +111,6 @@ class InformationRequestManager:
         information_request.resolution = resolution
         information_request.resolved_at = datetime.now(UTC)
         information_request.resolved_by = current_user_id
-
-        # Add to history
-        information_request.updates.append({
-            "timestamp": datetime.now(UTC).isoformat(),
-            "user_id": current_user_id,
-            "message": f"Request resolved: {resolution}",
-            "status": RequestStatus.RESOLVED.value,
-        })
 
         # Update metadata
         information_request.updated_at = datetime.now(UTC)

@@ -17,6 +17,7 @@ from assistant.prompt_utils import ContextSection, ContextStrategy, Instructions
 async def update_digest(context: ConversationContext, attachments_extension: AttachmentsExtension) -> None:
     debug: dict[str, Any] = {
         "context": context.to_dict(),
+        "agent": "update_digest",
     }
 
     config = await assistant_config.get(context.assistant)

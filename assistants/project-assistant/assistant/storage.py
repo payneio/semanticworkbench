@@ -102,9 +102,7 @@ class ConversationStorage:
         return read_model(path, ConversationPreferences)
 
     @staticmethod
-    def write_conversation_preferences(
-        context: ConversationContext, preferences: ConversationPreferences
-    ) -> None:
+    def write_conversation_preferences(context: ConversationContext, preferences: ConversationPreferences) -> None:
         path = ConversationStorage.get_conversation_preferences_file_path(context)
         write_model(path, preferences)
 
@@ -133,9 +131,7 @@ class ShareStorage:
         share = ShareStorage.read_share(share_id)
         if not share:
             raise NoShareException
-        tasks_with_ids = [
-            TaskInfo(**task.model_dump(), task_id=str(uuid.uuid4())) for task in tasks
-        ]
+        tasks_with_ids = [TaskInfo(**task.model_dump(), task_id=str(uuid.uuid4())) for task in tasks]
         share.tasks.extend(tasks_with_ids)
         ShareStorage.write_share(share_id, share)
 
@@ -206,9 +202,7 @@ class ShareStorage:
         return read_model(path, CoordinatorConversationMessages)
 
     @staticmethod
-    def write_coordinator_conversation(
-        share_id: str, conversation: CoordinatorConversationMessages
-    ) -> pathlib.Path:
+    def write_coordinator_conversation(share_id: str, conversation: CoordinatorConversationMessages) -> pathlib.Path:
         path = ShareStorageManager.get_coordinator_conversation_path(share_id)
         write_model(path, conversation)
         return path
@@ -254,9 +248,7 @@ class ShareStorage:
         return ShareStorage.write_share(share_id, share)
 
     @staticmethod
-    def read_information_request(
-        share_id: str, request_id: str
-    ) -> InformationRequest | None:
+    def read_information_request(share_id: str, request_id: str) -> InformationRequest | None:
         share = ShareStorage.read_share(share_id)
         if not share:
             raise NoShareException
@@ -268,10 +260,7 @@ class ShareStorage:
         return None
 
     @staticmethod
-    def write_information_request(
-        share_id: str, request: InformationRequest
-    ) -> pathlib.Path:
-        # Information requests must have an ID
+    def write_information_request(share_id: str, request: InformationRequest) -> pathlib.Path:
         if not request.request_id:
             raise ValueError("Information request must have a request_id")
         share = ShareStorage.read_share(share_id)
@@ -297,10 +286,7 @@ class ShareStorage:
         share = ShareStorage.read_share(share_id)
         if not share:
             return []
-
-        # Sort by updated_at timestamp, newest first
         requests = share.requests or []
-        # requests.sort(key=lambda r: r.updated_at, reverse=True)
         return requests
 
     @staticmethod

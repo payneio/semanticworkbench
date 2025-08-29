@@ -26,6 +26,7 @@ async def detect_audience_and_takeaways(
 ) -> None:
     debug: dict[str, Any] = {
         "context": context.to_dict(),
+        "agent": "audience_and_takeaways",
     }
 
     config = await assistant_config.get(context.assistant)

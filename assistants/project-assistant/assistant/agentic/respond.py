@@ -36,7 +36,6 @@ from assistant.logging import logger
 from assistant.prompt_utils import (
     ContextSection,
     ContextStrategy,
-    DataContext,
     Instructions,
     Prompt,
     TokenBudget,
@@ -107,7 +106,12 @@ async def respond_to_conversation(
     Respond to a conversation message.
     """
     if "debug" not in metadata:
-        metadata["debug"] = {}
+        debug: dict[str, Any] = {
+            "context": context.to_dict(),
+            "agent": "responder",
+            "new_message": new_message.dict(),
+        }
+        metadata["debug"] = debug
 
     config = await assistant_config.get(context.assistant)
     model = config.request_config.openai_model
@@ -179,7 +183,7 @@ async def respond_to_conversation(
         ContextSection.INFORMATION_REQUESTS,
         # ContextSection.SUGGESTED_NEXT_ACTIONS,
         ContextSection.ATTACHMENTS,
-        ContextSection.TASKS,
+        # ContextSection.TASKS,
     ]
     if role == ConversationRole.TEAM:
         sections.append(ContextSection.COORDINATOR_CONVERSATION)
@@ -196,13 +200,13 @@ async def respond_to_conversation(
         include=sections,
     )
 
-    user_information_requests_data = "- ".join(user_information_requests) if user_information_requests else "None"
-    prompt.contexts.append(
-        DataContext(
-            "Information Needed from the User",
-            user_information_requests_data,
-        )
-    )
+    # user_information_requests_data = "- ".join(user_information_requests) if user_information_requests else "None"
+    # prompt.contexts.append(
+    #     DataContext(
+    #         "Information Needed from the User",
+    #         user_information_requests_data,
+    #     )
+    # )
 
     # Calculate token count for all prompt so far.
     completion_messages = prompt.messages()

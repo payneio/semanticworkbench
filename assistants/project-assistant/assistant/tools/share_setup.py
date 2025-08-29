@@ -21,14 +21,14 @@ class ShareSetupTools(ToolsBase):
 
     async def update_audience(self, audience_description: str) -> str:
         """
-        Update the target audience description for this knowledge transfer.
+        Update the target audience description for this knowledge transfer. Only to be used when we have information about the audience.
 
         Args:
             audience_description: Description of the intended audience and their existing knowledge level
 
         Returns:
             A message indicating success or failure
-        """
+        """  # noqa: E501
         try:
             await AudienceManager.update_audience(
                 context=self.context,

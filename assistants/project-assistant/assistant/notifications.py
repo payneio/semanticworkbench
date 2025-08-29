@@ -32,6 +32,7 @@ class Notifications:
         share_id: str,
         message: str,
         other_conversation_id: str | None = None,
+        debug_data: dict[str, Any] | None = None,
     ) -> None:
         """
         Send text message notification to current conversation and one other.
@@ -40,7 +41,7 @@ class Notifications:
         If called from coordinator: notifies coordinator + specified other_conversation_id
         """
         # Always notify current conversation
-        await Notifications.notify(context, message)
+        await Notifications.notify(context, message, debug_data)
 
         share = await ShareManager.get_share(context)
         if not share:
@@ -62,6 +63,7 @@ class Notifications:
                 NewConversationMessage(
                     content=message,
                     message_type=MessageType.notice,
+                    debug_data=debug_data,
                 )
             )
         except Exception as e:

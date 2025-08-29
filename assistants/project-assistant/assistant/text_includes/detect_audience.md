@@ -14,6 +14,6 @@ Add a task to your task list on these conditions:
 
 UNDER ALL OTHER CIRCUMSTANCES, you should not add tasks. Just reply with an empty list. Oftentimes there will be nothing related to the audience or takeaways in new messages. This is quite common in a conversation. Return with an empty list in this case.
 
-IMPORTANT! If there are already tasks related to audience or audience takeaway definition, you don't need to add another task.
+IMPORTANT! If there are already tasks related to audience or audience takeaway definition, do not add another task, just return an empty list.
 
 Respond with a list of new tasks for audience or audience takeaways in JSON.

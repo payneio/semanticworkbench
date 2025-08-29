@@ -1,6 +1,6 @@
 from semantic_workbench_assistant.assistant_app import ConversationContext
 
-from assistant.data import NewTaskInfo, TaskInfo
+from assistant.data import NewTaskInfo, TaskInfo, TaskStatus
 from assistant.domain.share_manager import ShareManager
 from assistant.storage import ShareStorage
 
@@ -14,6 +14,24 @@ class TasksManager:
         if not share_id:
             return []
         return ShareStorage.read_tasks(share_id)
+
+    @staticmethod
+    async def get_tasks_to_work_on(
+        context: ConversationContext,
+    ) -> list[TaskInfo]:
+        tasks = await TasksManager.get_tasks(context)
+        return [
+            task
+            for task in tasks
+            if task.status in (TaskStatus.PENDING, TaskStatus.IN_PROGRESS, TaskStatus.WAITING_FOR_USER_INPUT)
+        ]
+
+    @staticmethod
+    async def get_unresolved_tasks(
+        context: ConversationContext,
+    ) -> list[TaskInfo]:
+        tasks = await TasksManager.get_tasks(context)
+        return [task for task in tasks if task.status in (TaskStatus.PENDING, TaskStatus.IN_PROGRESS)]
 
     @staticmethod
     async def add_tasks(

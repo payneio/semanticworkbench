@@ -1,7 +1,7 @@
 import json
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Protocol
+from typing import Any, Protocol
 
 import openai_client
 from assistant_extensions.attachments import (
@@ -24,7 +24,6 @@ from assistant.data import (
 from assistant.domain.learning_objectives_manager import LearningObjectivesManager
 from assistant.domain.share_manager import ShareManager
 from assistant.domain.tasks_manager import TasksManager
-from assistant.ui_tabs.common import get_priority_emoji, get_status_emoji
 
 
 def create_system_message(content: str, delimiter: str | None = None) -> ChatCompletionMessageParam:
@@ -331,26 +330,24 @@ async def add_context_to_prompt(
         all_requests = share.requests
         if role == ConversationRole.COORDINATOR:
             active_requests = [r for r in all_requests if r.status != RequestStatus.RESOLVED]
+            coordinator_requests: list[dict[str, Any]] = []
             if active_requests:
-                coordinator_requests = ""
-                for req in active_requests[:10]:  # Limit to 10 for brevity
-                    priority_emoji = get_priority_emoji(req.priority)
-                    status_emoji = get_status_emoji(req.status)
-                    coordinator_requests = f"{priority_emoji} **{req.title}** {status_emoji}\n"
-                    coordinator_requests += f"   **Request ID:** `{req.request_id}`\n"
-                    coordinator_requests += f"   **Description:** {req.description}\n\n"
-
-                if len(active_requests) > 10:
-                    coordinator_requests += f"*...and {len(active_requests) - 10} more requests.*\n"
-            else:
-                coordinator_requests = "No active information requests."
+                for req in active_requests:
+                    coordinator_requests.append({
+                        "request_id": req.request_id,
+                        "title": req.title,
+                        "description": req.description,
+                        "priority": req.priority,
+                        # "status": req.status,
+                    })
             prompt.contexts.append(
                 DataContext(
                     "Information Requests",
-                    coordinator_requests,
+                    json.dumps(coordinator_requests, indent=2),
                 )
             )
-        else:  # team role
+
+        if role == ConversationRole.TEAM:
             information_requests_info = ""
             my_requests = []
 

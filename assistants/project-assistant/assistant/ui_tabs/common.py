@@ -33,6 +33,7 @@ def task_status_emoji(status: TaskStatus) -> str:
     status_emojis = {
         TaskStatus.PENDING: "⏳",  # Pending - hourglass
         TaskStatus.IN_PROGRESS: "⚙️",  # In Progress - gear
+        TaskStatus.WAITING_FOR_USER_INPUT: "🕐",  # Waiting for user input - clock
         TaskStatus.COMPLETED: "✅",  # Completed - check mark
         TaskStatus.CANCELLED: "❌",  # Cancelled - cross mark
     }
