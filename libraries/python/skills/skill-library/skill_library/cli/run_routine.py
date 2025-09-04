@@ -70,8 +70,8 @@ try:
     from skill_library import Engine
     from skill_library.cli.azure_openai import create_azure_openai_client
     from skill_library.cli.conversation_history import ConversationHistory
-    from skill_library.cli.settings import Settings
     from skill_library.cli.skill_logger import SkillLogger
+    from skill_library.config import SkillsConfig
 
     # Import skill implementations
     from skill_library.skills.common import CommonSkill, CommonSkillConfig
@@ -132,26 +132,14 @@ class RoutineRunner:
 
     def initialize_engine(self) -> Optional[Engine]:
         """Initialize the engine with configured skills."""
-        # Create settings from the skills home directory
-        settings = Settings(self.skills_home_dir, self.logger)
+        # Create config from the skills home directory
+        config = SkillsConfig(self.skills_home_dir)
 
         # Ensure data folder exists
-        data_folder = settings.data_folder
+        data_folder = self.skills_home_dir / "data"
         data_folder.mkdir(parents=True, exist_ok=True)
 
         drive = Drive(DriveConfig(root=data_folder))
-
-        try:
-            language_model = create_azure_openai_client(
-                settings.azure_openai_endpoint, settings.azure_openai_deployment
-            )
-            reasoning_language_model = create_azure_openai_client(
-                settings.azure_openai_endpoint, settings.azure_openai_reasoning_deployment
-            )
-            self.logger.info("Created Azure OpenAI client")
-        except Exception as e:
-            self.logger.error(f"Failed to create Azure OpenAI client: {e}")
-            return None
 
         drive_root = data_folder / self.engine_id / "drive"
         metadata_drive_root = data_folder / self.engine_id / "metadata"
@@ -174,17 +162,17 @@ class RoutineRunner:
                         MetaSkillConfig(
                             name="meta",
                             drive=drive.subdrive("meta"),
-                            language_model=language_model,
+                            language_model=config.skill_config("meta").azure_client("model"),
                         ),
                     ),
                     (
                         CommonSkill,
                         CommonSkillConfig(
                             name="common",
-                            language_model=language_model,
+                            language_model=config.skill_config("common").azure_client("model"),
                             drive=drive.subdrive("common"),
-                            bing_subscription_key=settings.bing_subscription_key,
-                            bing_search_url=settings.bing_search_url,
+                            bing_subscription_key=config.get("bing_subscription_key", ""),
+                            bing_search_url=config.get("bing_search_url", "https://api.bing.microsoft.com/v7.0/search"),
                         ),
                     ),
                     (
@@ -199,7 +187,7 @@ class RoutineRunner:
                         ResearchSkill,
                         ResearchSkillConfig(
                             name="research",
-                            language_model=language_model,
+                            language_model=config.skill_config("research").azure_client("model"),
                             drive=drive.subdrive("research"),
                         ),
                     ),
@@ -207,12 +195,11 @@ class RoutineRunner:
                         WebResearchSkill,
                         WebResearchSkillConfig(
                             name="web_research",
-                            language_model=language_model,
-                            reasoning_language_model=reasoning_language_model,
+                            language_model=config.skill_config("web_research").azure_client("model"),
+                            reasoning_language_model=config.skill_config("web_research").azure_client("reasoning_model"),
                             drive=drive.subdrive("web_research"),
                         ),
                     ),
-                    # Additional skills would be loaded based on config
                 ],
             )
             self.logger.info("Engine initialized successfully with 4 skills")
