@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "MADE:Exploration Skill library"
 authors = [{name="MADE:Explorers"}]
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "assistant-drive>=0.1.0",
     "assistant-extensions[attachments]>=0.1.0",
@@ -19,6 +19,7 @@ dependencies = [
     "tiktoken>=0.8.0",
     "jsonschema>=4.23.0",
     "bs4>=0.0.2",
+    "ddgs>=9.5.5",
 ]
 
 [dependency-groups]
@@ -27,6 +28,9 @@ dev = [
     "pytest>=8.3.1",
     "pytest-asyncio>=0.23.8",
     "pytest-repeat>=0.9.3",
+]
+lint = [
+    "ruff",
 ]
 
 [tool.uv.sources]
