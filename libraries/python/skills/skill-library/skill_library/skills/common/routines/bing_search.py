@@ -1,6 +1,6 @@
 from typing import Any, Optional
 
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 from skill_library import AskUserFn, EmitFn, RunContext, RunRoutineFn
 
 
@@ -21,7 +21,7 @@ async def main(
         with DDGS() as ddgs:
             # Get search results from DuckDuckGo
             results = list(ddgs.text(
-                keywords=q,
+                query=q,
                 max_results=num_results or 7,
                 region='us-en',
                 safesearch='moderate'
@@ -30,7 +30,7 @@ async def main(
             # Extract URLs from results
             urls = [result['href'] for result in results if 'href' in result]
 
-            context.log(f"DuckDuckGo search completed for query: {q}", {
+            context.log(f"Search completed for query: {q}", {
                 "num_results_requested": num_results,
                 "num_results_found": len(urls),
                 "query": q

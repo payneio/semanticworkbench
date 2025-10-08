@@ -1,5 +1,6 @@
 import json
 import logging
+from contextvars import ContextVar
 from datetime import datetime
 from os import PathLike
 from pathlib import Path
@@ -8,9 +9,31 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-logger = logging.getLogger("skill-library")
-logger.addHandler(logging.NullHandler())
-logger.setLevel(logging.DEBUG)
+# Context variables for run/session tracking
+run_id_var: ContextVar[str | None] = ContextVar("run_id", default=None)
+session_id_var: ContextVar[str | None] = ContextVar("session_id", default=None)
+
+# Standard logger that will inherit configuration from CLI
+logger = logging.getLogger(__name__)
+
+
+class SkillLibraryContextFilter(logging.Filter):
+    """Add run_id and session_id context to log records."""
+    
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.run_id = run_id_var.get()
+        record.session_id = session_id_var.get()
+        return True
+
+
+def set_run_id(run_id: str) -> None:
+    """Set the run ID for the current context."""
+    run_id_var.set(run_id)
+
+
+def set_session_id(session_id: str) -> None:
+    """Set the session ID for the current context."""
+    session_id_var.set(session_id)
 
 
 def convert_to_serializable(data: Any) -> Any:
@@ -60,17 +83,14 @@ def extra_data(data: Any) -> dict[str, Any]:
     return extra
 
 
-extra_data = extra_data
-
-
 class JsonFormatter(logging.Formatter):
     def format(self, record) -> str:
         record_dict = record.__dict__
         log_record = {
             "timestamp": self.formatTime(record, self.datefmt),
             "level": record.levelname,
-            "sessionId": record_dict.get("session_id", None),
-            "runIdd": record_dict.get("run_id", None),
+            "sessionId": getattr(record, "session_id", None),
+            "runId": getattr(record, "run_id", None),
             "message": record.getMessage(),
             "data": record_dict.get("data", None),
             "module": record.module,

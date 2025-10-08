@@ -15,8 +15,8 @@ from uuid import uuid4
 from assistant_drive import Drive, DriveConfig, IfDriveFileExistsBehavior
 from events import ErrorEvent, EventProtocol, InformationEvent, MessageEvent, StatusUpdatedEvent
 from semantic_workbench_api_model.workbench_model import ConversationMessageList
-
-from .logging import extra_data, logger
+import logging
+from .logging import extra_data, logger, set_run_id, set_session_id
 from .routine_stack import RoutineStack
 from .skill import Skill, SkillConfig
 from .types import RunContext
@@ -253,9 +253,16 @@ class Engine:
             skills=self._skills,
         )
 
+        # Set context variables for logging
+        if run_context.run_id:
+            set_run_id(run_context.run_id)
+        if run_context.session_id:
+            set_session_id(run_context.session_id)
+
         try:
             result = await self.run_routine_with_context(run_context, designation, *args, **kwargs)
             self._emit(InformationEvent(message=str(result), metadata=run_context.flattened_metadata()))
+            logger.log(logging.INFO, f"Routine `{designation}` completed successfully.", extra=extra_data({"result": result, **run_context.flattened_metadata()}))
         except Exception as e:
             tb = traceback.format_exc()
             self._emit(
@@ -287,8 +294,10 @@ class Engine:
         logger.debug("Creating new routine.", extra_data({"designation": designation, "id": id(result_future)}))
         self._routine_output_futures.append(result_future)
 
-        # Create task but don't await it yet.
-        asyncio.create_task(self._run_routine_task(run_context, designation, routine, result_future, *args, **kwargs))
+        # Create task
+        asyncio.create_task(
+            self._run_routine_task(run_context, designation, routine, result_future, *args, **kwargs)
+        )
 
         # Return the result future directly.
         return await result_future

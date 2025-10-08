@@ -70,8 +70,9 @@ try:
     from skill_library import Engine
     from skill_library.cli.azure_openai import create_azure_openai_client
     from skill_library.cli.conversation_history import ConversationHistory
-    from skill_library.cli.skill_logger import SkillLogger
     from skill_library.config import SkillsConfig
+    from skill_library.logging import JsonFormatter, file_logging_handler, SkillLibraryContextFilter, set_run_id, set_session_id
+    import logging
 
     # Import skill implementations
     from skill_library.skills.common import CommonSkill, CommonSkillConfig
@@ -95,7 +96,6 @@ class RoutineRunner:
         skills_home_dir: Path,
         engine_id: str,
         history: ConversationHistory,
-        logger: SkillLogger,
     ):
         self.routine_name = routine_name
         self.params = params.copy()
@@ -103,7 +103,7 @@ class RoutineRunner:
         self.skills_home_dir = skills_home_dir
         self.engine_id = engine_id
         self.history = history
-        self.logger = logger
+        self.logger = logging.getLogger("skill_library.cli.run_routine")
 
         # Extract special parameters
         self.non_interactive = self.params.pop("__non_interactive", False)
@@ -274,7 +274,7 @@ class RoutineRunner:
                     continue
 
                 # Prompt the user for input via stderr - this bypasses quiet mode
-                self.logger.prompt_user(prompt)
+                print(f"\n{prompt}", file=sys.stderr, end="", flush=True)
 
                 while True:
                     # Read from stdin in a way that doesn't block the event loop
@@ -423,9 +423,6 @@ class RoutineRunner:
             if self.user_interaction_active.is_set():
                 self.logger.warning("Routine execution ended while waiting for user input.")
 
-            # Finalize logging
-            self.logger.finalize()
-
 
 def find_skills_home_dir() -> Path:
     """Find the skills home directory based on environment or defaults."""
@@ -566,15 +563,46 @@ async def main() -> None:
     timestamp: str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     run_id = f"{timestamp}_{uuid.uuid4().hex[:8]}"
 
-    # Create the logger
-    logger = SkillLogger(skills_home_dir=skills_home_dir, run_id=run_id, interactive=not non_interactive, quiet=quiet)
+    # Set context variables for all loggers
+    set_run_id(run_id)
+    set_session_id(engine_id)
+
+    # Set up standard logging for the entire skill_library
+    root_logger = logging.getLogger("skill_library")
+    root_logger.setLevel(logging.DEBUG)
+
+    # Clear any existing handlers
+    root_logger.handlers.clear()
+
+    # Create context filter
+    context_filter = SkillLibraryContextFilter()
+
+    # Console handler (respects quiet flag)
+    if not quiet:
+        console_handler = logging.StreamHandler(sys.stderr)
+        console_handler.setLevel(logging.INFO)
+        console_formatter = logging.Formatter('[%(asctime)s] %(levelname)s: %(message)s', '%H:%M:%S')
+        console_handler.setFormatter(console_formatter)
+        console_handler.addFilter(context_filter)
+        root_logger.addHandler(console_handler)
+
+    # File handler for persistent logging
+    runs_dir = skills_home_dir / "runs"
+    runs_dir.mkdir(exist_ok=True)
+    file_handler = file_logging_handler(runs_dir / f"{run_id}.jsonl", ensure_dir_exists=True)
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.addFilter(context_filter)
+    root_logger.addHandler(file_handler)
+
+    # Get CLI-specific logger
+    logger = logging.getLogger("skill_library.cli")
 
     # Log startup information
     logger.info(f"Run ID: {run_id}")
     logger.info(f"Skills home directory: {skills_home_dir}")
 
     # Create history object for all paths
-    history = ConversationHistory(logger)
+    history = ConversationHistory()
 
     # Check if there's input on stdin
     input_text = None
@@ -594,7 +622,6 @@ async def main() -> None:
         skills_home_dir=skills_home_dir,
         engine_id=engine_id,
         history=history,
-        logger=logger,
     )
 
     engine = runner.initialize_engine()
@@ -616,8 +643,6 @@ async def main() -> None:
         except AttributeError:
             logger.error("Engine does not support listing routines")
             print("ERROR: Engine does not support listing routines", file=sys.stderr)
-        finally:
-            logger.finalize()
         return
 
     if routine_name == "__usage__":
@@ -631,8 +656,6 @@ async def main() -> None:
         except AttributeError:
             logger.error("Engine does not support retrieving routine usage")
             print("ERROR: Engine does not support retrieving routine usage", file=sys.stderr)
-        finally:
-            logger.finalize()
         return
 
     # Announce the start of execution

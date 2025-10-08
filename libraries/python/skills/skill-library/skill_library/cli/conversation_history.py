@@ -8,15 +8,15 @@ from semantic_workbench_api_model.workbench_model import (
     MessageSender,
     ParticipantRole,
 )
-from skill_library.cli.skill_logger import SkillLogger
+import logging
 
 
 class ConversationHistory:
     """Manages conversation history for routine execution."""
 
-    def __init__(self, logger: SkillLogger):
+    def __init__(self):
         self.messages = []
-        self.logger = logger
+        self.logger = logging.getLogger(__name__)
 
     def add_message(
         self,
