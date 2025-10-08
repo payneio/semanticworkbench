@@ -1,0 +1,47 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Research Routine",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "skill_library.cli.run_routine",
+      "args": [
+        "research.web_research",
+        "--param",
+        "plan_name=claude-code",
+        "--param",
+        "topic=I'd like to understand Claude Code hooks, agents, and commands... specificially how to use them for large, long-running coding projects"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "justMyCode": false,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      },
+      "stopOnEntry": false,
+      "redirectOutput": true
+    },
+    {
+      "name": "Debug Web Search Routine",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "skill_library.cli.run_routine",
+      "args": [
+        "research.web_search",
+        "--param",
+        "search_description=\"Paul Payne seattle\""
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "justMyCode": false,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      },
+      "stopOnEntry": false,
+      "redirectOutput": true
+    }
+  ]
+}

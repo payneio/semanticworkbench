@@ -1,0 +1,47 @@
+{
+  "launch": {
+    "version": "0.2.0",
+    "configurations": []
+  },
+
+  // Naming convention: <root folder>:<package folder> (skip all subfolders)
+  "folders": [
+    {
+      "name": "skill-library",
+      "path": "./skill-library"
+    },
+    {
+      "name": "tools",
+      "path": "tools"
+    },
+    {
+      "name": ".github",
+      "path": ".github"
+    },
+    {
+      "name": ".multi-root-tools",
+      "path": ".multi-root-tools"
+    }
+  ],
+  "settings": {
+    "markdown.validate.enabled": true,
+    "ruff.configuration": "${workspaceFolder:.multi-root-tools}/../ruff.toml",
+    "ruff.interpreter": ["${workspaceFolder:.multi-root-tools}/.venv"],
+    "ruff.importStrategy": "useBundled",
+    "ruff.nativeServer": "on",
+    "[python]": {
+      "editor.defaultFormatter": "charliermarsh.ruff"
+    },
+    "python.analysis.exclude": ["**/.venv", "**/.data", "**/__pycache__"]
+  },
+  "extensions": {
+    "recommendations": [
+      "charliermarsh.ruff",
+      "dbaeumer.vscode-eslint",
+      "esbenp.prettier-vscode",
+      "ms-python.debugpy",
+      "ms-python.python",
+      "ms-vscode.makefile-tools"
+    ]
+  }
+}
